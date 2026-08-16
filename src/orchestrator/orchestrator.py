@@ -67,6 +67,7 @@ class Orchestrator:
         critic: Optional[CriticAgent] = None,
         on_iteration_complete: Optional[Callable[[int, CritiqueResult], None]] = None,
         on_round_complete: Optional[Callable[[int, str, CritiqueResult], None]] = None,
+        on_generator_token: Optional[Callable[[int, str], None]] = None,
     ):
         """
         初始化编排器
@@ -79,6 +80,8 @@ class Orchestrator:
             on_iteration_complete: 每轮完成后的回调函数（仅评分结果）
             on_round_complete: 每轮完成后的回调函数（含完整草稿与审查结果），
                 签名: (round_num, draft, critique)，用于实时观察对话内容
+            on_generator_token: Generator 流式生成时的 token 回调，
+                签名: (round_num, token)，传入后 Generator 会走流式生成
         """
         config = get_config()
         self.domain = domain
@@ -93,6 +96,7 @@ class Orchestrator:
         # 回调函数
         self.on_iteration_complete = on_iteration_complete
         self.on_round_complete = on_round_complete
+        self.on_generator_token = on_generator_token
 
         logger.info(
             f"Orchestrator 初始化完成: domain={domain}, "
@@ -147,11 +151,23 @@ class Orchestrator:
             logger.info(f"--- 第 {round_num} 轮迭代开始 ---")
 
             # 1. Generator 生成/修改
-            draft = self.generator.generate(
-                task=task,
-                draft=state.draft,
-                critique=state.critique,
-            )
+            # 传入 on_generator_token 时走流式生成，实时推送 token
+            if self.on_generator_token:
+                def _on_token(token: str) -> None:
+                    self.on_generator_token(round_num, token)
+
+                draft = self.generator.generate_stream(
+                    task=task,
+                    draft=state.draft,
+                    critique=state.critique,
+                    on_token=_on_token,
+                )
+            else:
+                draft = self.generator.generate(
+                    task=task,
+                    draft=state.draft,
+                    critique=state.critique,
+                )
             state.draft = draft
 
             # 2. Critic 审查

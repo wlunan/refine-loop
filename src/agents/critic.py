@@ -79,6 +79,12 @@ class CriticAgent(BaseAgent):
             结构化的审查结果
         """
         user_message = build_critic_user_message(task=task, draft=draft)
+
+        # 注入 Pydantic 输出的 JSON Schema，明确告知模型应输出的字段与类型，
+        # 否则弱模型容易输出字段缺失/类型错误/夹带文字，导致解析降级
+        format_instructions = self.parser.get_format_instructions()
+        user_message = user_message + "\n\n" + format_instructions
+
         logger.info(
             f"[Critic] 开始审查，产出长度: {len(draft)}"
         )
@@ -114,21 +120,99 @@ class CriticAgent(BaseAgent):
         if json_str:
             try:
                 data = json.loads(json_str)
-                return CritiqueResult(**data)
+                return self._coerce_critique(data)
             except Exception as e:
                 logger.warning(f"[Critic] JSON 解析失败: {e}")
 
-        # 降级：返回一个保守的审查结果
+        # 降级：返回一个保守的审查结果，并把原始回复片段带出来方便定位
+        snippet = response[:300].replace("\n", " ")
         logger.warning(
             "[Critic] 无法解析回复，返回降级结果（score=50, 不可接受）"
         )
         return CritiqueResult(
             score=50,
-            issues=["Critic 的回复格式无法解析，无法进行有效审查"],
-            suggestions=["请检查 Generator 的产出是否为空或格式异常"],
+            issues=[
+                "Critic 的回复格式无法解析，无法进行有效审查。"
+                f"原始回复片段: {snippet}"
+            ],
+            suggestions=[
+                "请确认 Critic 模型是否严格输出 JSON；"
+                "或换用更强的模型（如 mimo-v2.5-pro / gpt-4o-mini）"
+            ],
             acceptable=False,
             summary="解析降级",
         )
+
+    def _coerce_critique(self, data) -> CritiqueResult:
+        """
+        对解析出的 JSON 做类型容错转换，再构造 CritiqueResult
+
+        弱模型常输出 score 为字符串、issues 为字符串等类型偏差，
+        直接 CritiqueResult(**data) 会因 Pydantic 严格校验而失败，
+        这里统一清洗字段类型。
+
+        Args:
+            data: json.loads 得到的对象（期望是 dict）
+
+        Returns:
+            类型修正后的 CritiqueResult
+
+        Raises:
+            ValueError: data 不是 dict 等无法修复的情况
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"审查 JSON 不是对象: {type(data)}")
+
+        # score: 兼容字符串数字 / 浮点，并夹在 0-100
+        raw_score = data.get("score", 0)
+        try:
+            score = int(round(float(raw_score)))
+        except (TypeError, ValueError):
+            score = 0
+        score = max(0, min(100, score))
+
+        # issues / suggestions: 统一转为字符串列表
+        def _to_str_list(value):
+            if value is None:
+                return []
+            if isinstance(value, str):
+                return [value]
+            if isinstance(value, list):
+                return [str(item) for item in value]
+            return [str(value)]
+
+        issues = _to_str_list(data.get("issues"))
+        suggestions = _to_str_list(data.get("suggestions"))
+
+        # acceptable: 兼容 bool / 字符串布尔
+        raw_acceptable = data.get("acceptable", False)
+        if isinstance(raw_acceptable, str):
+            acceptable = raw_acceptable.strip().lower() in (
+                "true", "1", "yes", "是", "y"
+            )
+        else:
+            acceptable = bool(raw_acceptable)
+
+        summary = data.get("summary")
+
+        try:
+            return CritiqueResult(
+                score=score,
+                issues=issues,
+                suggestions=suggestions,
+                acceptable=acceptable,
+                summary=summary,
+            )
+        except Exception:
+            # 若 acceptable 与 score 一致性校验不通过（acceptable=True 但分过低），
+            # 强制 acceptable=False 兜底
+            return CritiqueResult(
+                score=score,
+                issues=issues,
+                suggestions=suggestions,
+                acceptable=False,
+                summary=summary,
+            )
 
     def _extract_json(self, text: str) -> Optional[str]:
         """

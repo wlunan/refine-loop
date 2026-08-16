@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
+from typing import Callable, Optional
 
 from langchain_core.language_models import BaseChatModel
 
@@ -62,6 +62,55 @@ class GeneratorAgent(BaseAgent):
         """获取默认模型名称"""
         return get_config().llm.generator_model
 
+    def _build_user_message(
+        self,
+        task: str,
+        draft: str = "",
+        critique: Optional[CritiqueResult] = None,
+    ) -> str:
+        """
+        构建发送给 Generator 的用户消息
+
+        供 generate 与 generate_stream 共用，避免逻辑重复
+
+        Args:
+            task: 任务描述
+            draft: 上一版产出（首次生成时为空）
+            critique: 上一轮的批判结果（首次生成时为 None）
+
+        Returns:
+            格式化后的用户消息
+        """
+        is_first_turn = critique is None or draft == ""
+
+        if is_first_turn:
+            logger.info(f"[Generator] 首次生成，任务长度: {len(task)}")
+            return build_generator_user_message(task=task, is_first_turn=True)
+
+        # 格式化 issues 和 suggestions
+        issues_str = "\n".join(
+            f"{i+1}. {issue}"
+            for i, issue in enumerate(critique.issues)
+        ) if critique.issues else "无"
+
+        suggestions_str = "\n".join(
+            f"{i+1}. {sug}"
+            for i, sug in enumerate(critique.suggestions)
+        ) if critique.suggestions else "无"
+
+        logger.info(
+            f"[Generator] 迭代生成，上轮评分: {critique.score}, "
+            f"问题数: {len(critique.issues)}"
+        )
+        return build_generator_user_message(
+            task=task,
+            draft=draft,
+            is_first_turn=False,
+            score=critique.score,
+            issues=issues_str,
+            suggestions=suggestions_str,
+        )
+
     def generate(
         self,
         task: str,
@@ -69,7 +118,7 @@ class GeneratorAgent(BaseAgent):
         critique: Optional[CritiqueResult] = None,
     ) -> str:
         """
-        生成或优化产出
+        生成或优化产出（阻塞式，一次性返回完整结果）
         
         Args:
             task: 任务描述
@@ -79,41 +128,41 @@ class GeneratorAgent(BaseAgent):
         Returns:
             生成的产出内容
         """
-        is_first_turn = critique is None or draft == ""
-
-        if is_first_turn:
-            user_message = build_generator_user_message(
-                task=task,
-                is_first_turn=True,
-            )
-            logger.info(f"[Generator] 首次生成，任务长度: {len(task)}")
-        else:
-            # 格式化 issues 和 suggestions
-            issues_str = "\n".join(
-                f"{i+1}. {issue}"
-                for i, issue in enumerate(critique.issues)
-            ) if critique.issues else "无"
-
-            suggestions_str = "\n".join(
-                f"{i+1}. {sug}"
-                for i, sug in enumerate(critique.suggestions)
-            ) if critique.suggestions else "无"
-
-            user_message = build_generator_user_message(
-                task=task,
-                draft=draft,
-                is_first_turn=False,
-                score=critique.score,
-                issues=issues_str,
-                suggestions=suggestions_str,
-            )
-            logger.info(
-                f"[Generator] 迭代生成，上轮评分: {critique.score}, "
-                f"问题数: {len(critique.issues)}"
-            )
-
+        user_message = self._build_user_message(task, draft, critique)
         result = self.call_llm_with_retry(user_message)
         return self._extract_final_output(result)
+
+    def generate_stream(
+        self,
+        task: str,
+        draft: str = "",
+        critique: Optional[CritiqueResult] = None,
+        on_token: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """
+        流式生成或优化产出，逐块返回生成内容
+
+        与 generate 不同，此方法在模型生成过程中即可通过 on_token 回调
+        拿到每一个文本增量，用于 Web 等实时展示场景。
+
+        Args:
+            task: 任务描述
+            draft: 上一版产出（首次生成时为空）
+            critique: 上一轮的批判结果（首次生成时为 None）
+            on_token: 可选回调，每生成一段文本就调用一次，参数为文本增量
+
+        Returns:
+            生成完成后提取出的最终产出内容
+        """
+        user_message = self._build_user_message(task, draft, critique)
+
+        parts: list[str] = []
+        for piece in self.call_llm_stream(user_message):
+            parts.append(piece)
+            if on_token:
+                on_token(piece)
+
+        return self._extract_final_output("".join(parts))
 
     def _extract_final_output(self, response: str) -> str:
         """

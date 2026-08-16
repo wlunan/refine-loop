@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -147,6 +147,53 @@ class BaseAgent(ABC):
             duration = time.time() - start_time
             logger.error(
                 f"[{self.role.value}] LLM 调用失败，耗时: {duration:.2f}s, "
+                f"错误: {str(e)}"
+            )
+            raise
+
+    def call_llm_stream(
+        self,
+        user_message: str,
+        conversation_history: Optional[list] = None,
+        **kwargs: Any,
+    ) -> Iterator[str]:
+        """
+        流式调用 LLM，逐块返回生成的文本内容
+
+        与 call_llm 不同，此方法在模型生成过程中就逐个返回文本增量，
+        适合 Web 等需要实时展示生成过程的场景（前端逐字/逐句显示）。
+
+        Args:
+            user_message: 用户消息内容
+            conversation_history: 历史对话
+            **kwargs: 额外参数传递给 LLM
+
+        Yields:
+            每次生成的一小段文本（str）
+
+        Raises:
+            Exception: LLM 调用失败时抛出
+        """
+        messages = self._build_messages(user_message, conversation_history)
+
+        start_time = time.time()
+        try:
+            logger.debug(
+                f"[{self.role.value}] 流式调用 LLM，消息长度: {len(user_message)}"
+            )
+            for chunk in self.llm.stream(messages, **kwargs):
+                piece = chunk.content if hasattr(chunk, "content") else str(chunk)
+                if piece:
+                    yield piece
+
+            duration = time.time() - start_time
+            logger.info(
+                f"[{self.role.value}] 流式调用完成，耗时: {duration:.2f}s"
+            )
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(
+                f"[{self.role.value}] 流式调用失败，耗时: {duration:.2f}s, "
                 f"错误: {str(e)}"
             )
             raise

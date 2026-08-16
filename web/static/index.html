@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Generator-Critic 多 Agent 对话</title>
+<style>
+  :root {
+    --bg: #f1f2f7;
+    --card: #ffffff;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --primary: #6366f1;
+    --primary-2: #8b5cf6;
+    --generator: #6366f1;
+    --critic: #f59e0b;
+    --success: #10b981;
+    --danger: #ef4444;
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-2));
+    color: #fff;
+    padding: 20px 28px;
+    box-shadow: 0 2px 12px rgba(99, 102, 241, 0.25);
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: 0.9; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 20px;
+    padding: 20px 28px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    height: fit-content;
+    position: sticky;
+    top: 20px;
+  }
+  .panel h2 {
+    margin: 0 0 16px;
+    font-size: 15px;
+    color: var(--text);
+  }
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .field textarea, .field input, .field select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fafafa;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .field textarea { min-height: 140px; resize: vertical; }
+  .field textarea:focus, .field input:focus, .field select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+    background: #fff;
+  }
+  .field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(135deg, var(--primary), var(--primary-2));
+    transition: opacity .15s, transform .05s;
+  }
+  .btn:hover { opacity: 0.92; }
+  .btn:active { transform: scale(0.99); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-stop {
+    background: #fff;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    margin-top: 10px;
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: #f9fafb;
+    border-radius: 10px;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+  .dot.running { background: var(--success); animation: pulse 1.2s infinite; }
+  .dot.done { background: var(--success); }
+  .dot.error { background: var(--danger); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .content { min-width: 0; }
+
+  .section-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 24px 0 12px;
+    color: var(--text);
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  .empty-tip {
+    text-align: center;
+    color: var(--muted);
+    padding: 60px 20px;
+    font-size: 14px;
+  }
+
+  .round-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    overflow: hidden;
+  }
+  .round-header {
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    background: #f9fafb;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .agent-block { padding: 14px 16px; }
+  .agent-block.generator { border-bottom: 1px solid var(--border); }
+  .agent-label {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+    letter-spacing: .3px;
+  }
+  .generator .agent-label { background: rgba(99,102,241,0.1); color: var(--generator); }
+  .critic .agent-label { background: rgba(245,158,11,0.12); color: var(--critic); }
+
+  .agent-content {
+    font-size: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    line-height: 1.7;
+  }
+  .critic-content { font-family: inherit; }
+
+  .critic-meta {
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+  .score {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--primary);
+  }
+  .badge {
+    display: inline-block;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    margin-left: 6px;
+  }
+  .badge.ok { background: rgba(16,185,129,0.12); color: var(--success); }
+  .badge.no { background: rgba(239,68,68,0.12); color: var(--danger); }
+
+  .critic-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 10px 0 6px;
+  }
+  .critic-content ul { margin: 0; padding-left: 20px; }
+  .critic-content li { margin-bottom: 4px; font-size: 14px; }
+
+  .trend-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    background: var(--card);
+    padding: 20px;
+    border-radius: var(--radius);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    min-height: 100px;
+  }
+  .trend-item { text-align: center; flex: 1; max-width: 70px; }
+  .trend-value { font-size: 13px; font-weight: 600; color: var(--text); }
+  .trend-col {
+    height: 80px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .trend-bar-inner {
+    width: 28px;
+    border-radius: 6px 6px 0 0;
+    background: linear-gradient(180deg, var(--primary-2), var(--primary));
+    transition: height .4s ease;
+  }
+  .trend-round { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .final-card {
+    background: linear-gradient(135deg, rgba(16,185,129,0.06), rgba(99,102,241,0.06));
+    border: 1px solid rgba(16,185,129,0.3);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .final-card h3 { margin: 0 0 12px; font-size: 15px; color: var(--success); }
+  .final-output {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 14px;
+    line-height: 1.8;
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .final-meta { margin-top: 12px; font-size: 13px; color: var(--muted); }
+
+  .error-box {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: var(--danger);
+    padding: 14px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Generator-Critic 多 Agent 对话</h1>
+    <p>实时观察生成者（Generator）与批判者（Critic）的多轮迭代过程</p>
+  </header>
+
+  <main class="layout">
+    <!-- 控制面板 -->
+    <aside class="panel">
+      <h2>任务配置</h2>
+      <div class="field">
+        <label for="task">任务描述</label>
+        <textarea id="task" placeholder="例如：设计一个支持百万级日活用户的短视频 App 后端架构方案...">设计一个支持百万级日活用户的短视频 App 后端架构方案，要求包含：1. 系统分层架构 2. 视频存储与 CDN 分发 3. 推荐系统链路 4. 数据库选型与分库分表 5. 缓存设计 6. 高可用与容灾方案</textarea>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="domain">领域</label>
+          <select id="domain">
+            <option value="general">通用</option>
+            <option value="code">代码</option>
+            <option value="writing">文案</option>
+            <option value="design" selected>方案设计</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="maxRounds">最大轮数</label>
+          <input type="number" id="maxRounds" value="5" min="1" max="20">
+        </div>
+      </div>
+      <div class="field">
+        <label for="threshold">收敛阈值（分数达到即停止）</label>
+        <input type="number" id="threshold" value="95" min="0" max="100">
+      </div>
+      <button class="btn" id="runBtn" onclick="startRun()">开始运行</button>
+      <button class="btn btn-stop" id="stopBtn" onclick="stopRun()" disabled>停止接收</button>
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">就绪</span>
+      </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <section class="content">
+      <div id="errorBox" style="display:none"></div>
+
+      <div class="section-title">迭代对话</div>
+      <div id="dialogue">
+        <div class="empty-tip" id="emptyTip">配置任务后点击「开始运行」，每轮对话将在这里实时显示</div>
+      </div>
+
+      <div class="section-title">评分趋势</div>
+      <div class="trend-bar" id="trendBar" style="display:none"></div>
+
+      <div class="section-title">最终产出</div>
+      <div class="final-card" id="finalCard" style="display:none">
+        <h3>最终结果</h3>
+        <div class="final-output" id="finalOutput"></div>
+        <div class="final-meta" id="finalMeta"></div>
+      </div>
+    </section>
+  </main>
+
+<script>
+  let es = null;
+  let finished = false;
+  const rounds = new Map();   // round -> { gen, critic }
+  const scores = [];          // {round, score}
+
+  function setStatus(state, text) {
+    const dot = document.getElementById('dot');
+    dot.className = 'dot ' + state;
+    document.getElementById('statusText').textContent = text;
+  }
+
+  function setRunning(running) {
+    document.getElementById('runBtn').disabled = running;
+    document.getElementById('stopBtn').disabled = !running;
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('errorBox');
+    box.style.display = 'block';
+    box.className = 'error-box';
+    box.textContent = msg;
+  }
+
+  function clearAll() {
+    rounds.clear();
+    scores.length = 0;
+    document.getElementById('dialogue').innerHTML =
+      '<div class="empty-tip" id="emptyTip">运行中...</div>';
+    document.getElementById('trendBar').style.display = 'none';
+    document.getElementById('trendBar').innerHTML = '';
+    document.getElementById('finalCard').style.display = 'none';
+    const box = document.getElementById('errorBox');
+    box.style.display = 'none';
+    box.textContent = '';
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function getRoundCard(round) {
+    if (rounds.has(round)) return rounds.get(round);
+    const card = document.createElement('div');
+    card.className = 'round-card';
+    card.innerHTML =
+      '<div class="round-header">第 ' + round + ' 轮迭代</div>' +
+      '<div class="agent-block generator">' +
+        '<span class="agent-label">Generator 生成</span>' +
+        '<div class="agent-content gen-content"></div>' +
+      '</div>' +
+      '<div class="agent-block critic">' +
+        '<span class="agent-label">Critic 审查</span>' +
+        '<div class="agent-content critic-content"></div>' +
+      '</div>';
+    const tip = document.getElementById('emptyTip');
+    if (tip) tip.remove();
+    document.getElementById('dialogue').appendChild(card);
+    const obj = {
+      card,
+      gen: card.querySelector('.gen-content'),
+      critic: card.querySelector('.critic-content'),
+    };
+    rounds.set(round, obj);
+    return obj;
+  }
+
+  function autoScroll() {
+    const card = document.querySelector('.round-card:last-child .gen-content');
+    if (card) card.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }
+
+  function handleToken(round, token) {
+    const r = getRoundCard(round);
+    r.gen.textContent += token;
+  }
+
+  function handleCritic(data) {
+    const r = getRoundCard(data.round);
+    const badge = data.acceptable
+      ? '<span class="badge ok">可接受</span>'
+      : '<span class="badge no">需修改</span>';
+    let html = '<div class="critic-meta">评分 <span class="score">' + data.score +
+      '</span> / 100' + badge + '</div>';
+    if (data.issues && data.issues.length) {
+      html += '<div class="critic-section-title">问题</div><ul>' +
+        data.issues.map(function(i){ return '<li>' + escapeHtml(i) + '</li>'; }).join('') +
+        '</ul>';
+    } else {
+      html += '<div class="critic-section-title">问题</div><div>无</div>';
+    }
+    if (data.suggestions && data.suggestions.length) {
+      html += '<div class="critic-section-title">建议</div><ul>' +
+        data.suggestions.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+        '</ul>';
+    }
+    if (data.summary) {
+      html += '<div class="critic-section-title">总结</div><div>' + escapeHtml(data.summary) + '</div>';
+    }
+    r.critic.innerHTML = html;
+    addScore(data.round, data.score);
+  }
+
+  function addScore(round, score) {
+    scores.push({ round: round, score: score });
+    renderTrend();
+  }
+
+  function renderTrend() {
+    const bar = document.getElementById('trendBar');
+    bar.style.display = 'flex';
+    bar.innerHTML = scores.map(function(s) {
+      return '<div class="trend-item">' +
+        '<div class="trend-value">' + s.score + '</div>' +
+        '<div class="trend-col"><div class="trend-bar-inner" style="height:' + s.score + '%"></div></div>' +
+        '<div class="trend-round">第' + s.round + '轮</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function handleDone(data) {
+    const finalCard = document.getElementById('finalCard');
+    finalCard.style.display = 'block';
+    document.getElementById('finalOutput').textContent = data.final_output;
+    document.getElementById('finalMeta').textContent =
+      '迭代轮数: ' + data.iterations +
+      ' · 收敛: ' + (data.converged ? '是' : '否') +
+      ' · 原因: ' + data.convergence_reason +
+      ' · 耗时: ' + data.total_time + 's';
+  }
+
+  function handleEvent(event) {
+    switch (event.type) {
+      case 'status':
+        setStatus('running', event.message);
+        break;
+      case 'token':
+        handleToken(event.round, event.token);
+        break;
+      case 'critic':
+        handleCritic(event);
+        break;
+      case 'done':
+        handleDone(event);
+        break;
+      case 'error':
+        showError(event.message);
+        setStatus('error', '出错');
+        break;
+      case 'end':
+        finished = true;
+        setStatus('done', '完成');
+        setRunning(false);
+        if (es) { es.close(); es = null; }
+        break;
+    }
+  }
+
+  function startRun() {
+    const task = document.getElementById('task').value.trim();
+    if (!task) { alert('请输入任务描述'); return; }
+
+    clearAll();
+    finished = false;
+    setRunning(true);
+    setStatus('running', '正在连接...');
+
+    const domain = document.getElementById('domain').value;
+    const maxRounds = document.getElementById('maxRounds').value;
+    const threshold = document.getElementById('threshold').value;
+
+    const url = '/api/stream?task=' + encodeURIComponent(task) +
+      '&domain=' + encodeURIComponent(domain) +
+      '&max_rounds=' + encodeURIComponent(maxRounds) +
+      '&threshold=' + encodeURIComponent(threshold);
+
+    es = new EventSource(url);
+    es.onmessage = function(e) {
+      try { handleEvent(JSON.parse(e.data)); }
+      catch (err) { /* 忽略无法解析的片段 */ }
+    };
+    es.onerror = function() {
+      if (!finished) {
+        showError('连接中断或服务出错，请检查后端是否正常运行');
+        setStatus('error', '连接中断');
+        setRunning(false);
+        if (es) { es.close(); es = null; }
+      }
+    };
+  }
+
+  function stopRun() {
+    if (es) { es.close(); es = null; }
+    finished = true;
+    setStatus('done', '已停止接收');
+    setRunning(false);
+  }
+</script>
+</body>
+</html>
