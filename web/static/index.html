@@ -153,6 +153,29 @@
     color: var(--text);
   }
   .section-title:first-child { margin-top: 0; }
+  .section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 24px 0 12px;
+  }
+  .section-title-row .section-title { margin: 0; }
+  .round-controls { display: flex; gap: 8px; }
+  .ctrl-btn {
+    font-size: 12px;
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .ctrl-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: rgba(99,102,241,0.05);
+  }
 
   .empty-tip {
     text-align: center;
@@ -169,23 +192,60 @@
     overflow: hidden;
   }
   .round-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     padding: 10px 16px;
     font-size: 14px;
     font-weight: 600;
     background: #f9fafb;
     border-bottom: 1px solid var(--border);
     color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    transition: background .15s;
   }
-  .agent-block { padding: 14px 16px; }
+  .round-header:hover { background: #eef0f5; }
+  .round-title { flex: 1; min-width: 0; }
+  .round-badges { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
+  .round-badges .badge { margin-left: 4px; }
+  .round-toggle {
+    font-size: 14px;
+    color: var(--muted);
+    transition: transform .15s;
+    flex-shrink: 0;
+  }
+  .round-card.collapsed .round-body { display: none; }
+  .round-card.collapsed .round-toggle { transform: rotate(-90deg); }
+  .agent-block { padding: 0 16px 4px; }
   .agent-block.generator { border-bottom: 1px solid var(--border); }
+  .agent-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0 6px;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 6px;
+  }
+  .agent-head:hover .agent-label { opacity: 0.75; }
+  .agent-toggle {
+    font-size: 12px;
+    color: var(--muted);
+    transition: transform .15s;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .agent-block.collapsed .agent-content { display: none; }
+  .agent-block.collapsed .agent-toggle { transform: rotate(-90deg); }
   .agent-label {
     display: inline-block;
     font-size: 12px;
     font-weight: 600;
     padding: 2px 10px;
     border-radius: 999px;
-    margin-bottom: 10px;
     letter-spacing: .3px;
+    transition: opacity .15s;
   }
   .generator .agent-label { background: rgba(99,102,241,0.1); color: var(--generator); }
   .critic .agent-label { background: rgba(245,158,11,0.12); color: var(--critic); }
@@ -196,6 +256,7 @@
     word-break: break-word;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
     line-height: 1.7;
+    padding-bottom: 14px;
   }
   .critic-content { font-family: inherit; }
 
@@ -328,7 +389,13 @@
     <section class="content">
       <div id="errorBox" style="display:none"></div>
 
-      <div class="section-title">迭代对话</div>
+      <div class="section-title-row">
+        <div class="section-title">迭代对话</div>
+        <div class="round-controls">
+          <button class="ctrl-btn" onclick="setAllExpanded(true)">全部展开</button>
+          <button class="ctrl-btn" onclick="setAllExpanded(false)">全部折叠</button>
+        </div>
+      </div>
       <div id="dialogue">
         <div class="empty-tip" id="emptyTip">配置任务后点击「开始运行」，每轮对话将在这里实时显示</div>
       </div>
@@ -392,23 +459,72 @@
     if (rounds.has(round)) return rounds.get(round);
     const card = document.createElement('div');
     card.className = 'round-card';
-    card.innerHTML =
-      '<div class="round-header">第 ' + round + ' 轮迭代</div>' +
-      '<div class="agent-block generator">' +
-        '<span class="agent-label">Generator 生成</span>' +
-        '<div class="agent-content gen-content"></div>' +
-      '</div>' +
-      '<div class="agent-block critic">' +
-        '<span class="agent-label">Critic 审查</span>' +
-        '<div class="agent-content critic-content"></div>' +
-      '</div>';
+
+    // 轮次头部（可点击折叠整个轮次）
+    const header = document.createElement('div');
+    header.className = 'round-header';
+    header.title = '点击折叠 / 展开本轮';
+    const title = document.createElement('span');
+    title.className = 'round-title';
+    title.textContent = '第 ' + round + ' 轮迭代';
+    const badges = document.createElement('span');
+    badges.className = 'round-badges';
+    const toggle = document.createElement('span');
+    toggle.className = 'round-toggle';
+    toggle.textContent = '▾';
+    header.appendChild(title);
+    header.appendChild(badges);
+    header.appendChild(toggle);
+
+    // 轮次主体
+    const body = document.createElement('div');
+    body.className = 'round-body';
+
+    // Generator 块（头部可点击折叠内容）
+    const genBlock = document.createElement('div');
+    genBlock.className = 'agent-block generator';
+    const genHead = document.createElement('div');
+    genHead.className = 'agent-head';
+    genHead.title = '点击折叠 / 展开生成内容';
+    genHead.innerHTML =
+      '<span class="agent-label">Generator 生成</span>' +
+      '<span class="agent-toggle">▾</span>';
+    const genContent = document.createElement('div');
+    genContent.className = 'agent-content gen-content';
+    genBlock.appendChild(genHead);
+    genBlock.appendChild(genContent);
+
+    // Critic 块
+    const criticBlock = document.createElement('div');
+    criticBlock.className = 'agent-block critic';
+    const criticHead = document.createElement('div');
+    criticHead.className = 'agent-head';
+    criticHead.title = '点击折叠 / 展开审查内容';
+    criticHead.innerHTML =
+      '<span class="agent-label">Critic 审查</span>' +
+      '<span class="agent-toggle">▾</span>';
+    const criticContent = document.createElement('div');
+    criticContent.className = 'agent-content critic-content';
+    criticBlock.appendChild(criticHead);
+    criticBlock.appendChild(criticContent);
+
+    body.appendChild(genBlock);
+    body.appendChild(criticBlock);
+    card.appendChild(header);
+    card.appendChild(body);
+
     const tip = document.getElementById('emptyTip');
     if (tip) tip.remove();
     document.getElementById('dialogue').appendChild(card);
+
+    header.onclick = function () { toggleRound(round); };
+    genHead.onclick = function () { toggleAgent(round, 'gen'); };
+    criticHead.onclick = function () { toggleAgent(round, 'critic'); };
+
     const obj = {
-      card,
-      gen: card.querySelector('.gen-content'),
-      critic: card.querySelector('.critic-content'),
+      card, body, header, badges, toggle,
+      genBlock, genContent,
+      criticBlock, criticContent,
     };
     rounds.set(round, obj);
     return obj;
@@ -416,12 +532,47 @@
 
   function autoScroll() {
     const card = document.querySelector('.round-card:last-child .gen-content');
-    if (card) card.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    if (card && card.offsetParent !== null) {
+      card.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    }
+  }
+
+  function toggleRound(round) {
+    const r = rounds.get(round);
+    if (!r) return;
+    setRoundExpanded(round, r.card.classList.contains('collapsed'));
+  }
+
+  function setRoundExpanded(round, expanded) {
+    const r = rounds.get(round);
+    if (!r) return;
+    r.card.classList.toggle('collapsed', !expanded);
+  }
+
+  function toggleAgent(round, which) {
+    const r = rounds.get(round);
+    if (!r) return;
+    const block = which === 'gen' ? r.genBlock : r.criticBlock;
+    block.classList.toggle('collapsed');
+  }
+
+  function setAgentExpanded(round, which, expanded) {
+    const r = rounds.get(round);
+    if (!r) return;
+    const block = which === 'gen' ? r.genBlock : r.criticBlock;
+    block.classList.toggle('collapsed', !expanded);
+  }
+
+  function setAllExpanded(expanded) {
+    rounds.forEach(function (_, round) { setRoundExpanded(round, expanded); });
   }
 
   function handleToken(round, token) {
     const r = getRoundCard(round);
-    r.gen.textContent += token;
+    // 流式输出时自动保持本轮与生成内容展开，方便实时观看
+    setRoundExpanded(round, true);
+    setAgentExpanded(round, 'gen', true);
+    r.genContent.textContent += token;
   }
 
   function handleCritic(data) {
@@ -429,6 +580,7 @@
     const badge = data.acceptable
       ? '<span class="badge ok">可接受</span>'
       : '<span class="badge no">需修改</span>';
+    r.badges.innerHTML = '评分 ' + data.score + ' ' + badge;
     let html = '<div class="critic-meta">评分 <span class="score">' + data.score +
       '</span> / 100' + badge + '</div>';
     if (data.issues && data.issues.length) {
@@ -446,7 +598,7 @@
     if (data.summary) {
       html += '<div class="critic-section-title">总结</div><div>' + escapeHtml(data.summary) + '</div>';
     }
-    r.critic.innerHTML = html;
+    r.criticContent.innerHTML = html;
     addScore(data.round, data.score);
   }
 
