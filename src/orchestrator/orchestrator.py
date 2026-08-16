@@ -7,6 +7,7 @@ Orchestrator 编排器模块
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -21,6 +22,11 @@ from src.models.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class OrchestratorStopped(Exception):
+    """编排器被外部请求停止时抛出的内部异常，用于中断流式生成"""
+    pass
 
 
 @dataclass
@@ -46,6 +52,7 @@ class RunResult:
             f"收敛原因: {self.convergence_reason}",
             f"评分趋势: {' → '.join(map(str, self.score_trend))}",
             f"总耗时: {self.total_time_seconds:.2f}s",
+            f"累计 Token: {self.state.total_tokens}",
             f"最终评分: {self.state.critique.score if self.state.critique else 'N/A'}",
             "=" * 50,
         ]
@@ -88,6 +95,11 @@ class Orchestrator:
         self.max_rounds = max_rounds or config.orchestrator.default_max_rounds
         self.score_threshold = config.orchestrator.convergence_score_threshold
         self.no_progress_rounds = config.orchestrator.no_progress_rounds
+        # Token 预算：<= 0 表示不限制
+        self.round_token_budget = config.orchestrator.round_token_budget
+        self.total_token_budget = config.orchestrator.total_token_budget
+        # 停止标志：线程安全的终止信号
+        self._stop_event = threading.Event()
 
         # 初始化 Agent（支持外部注入）
         self.generator = generator or GeneratorAgent(domain=domain)
@@ -103,6 +115,36 @@ class Orchestrator:
             f"max_rounds={self.max_rounds}, "
             f"score_threshold={self.score_threshold}"
         )
+
+    def stop(self) -> None:
+        """
+        请求停止迭代（线程安全）
+
+        调用后，编排器会在「当前 token 生成后」或「下一轮开始前」尽快停止，
+        并返回当前历史最优版本。适用于 Web 等需要用户主动中断长任务的场景。
+        """
+        self._stop_event.set()
+        logger.info("收到停止请求，将在当前步骤结束后停止")
+
+    def _is_stopped(self) -> bool:
+        """是否已收到停止请求"""
+        return self._stop_event.is_set()
+
+    def _current_total_tokens(self) -> int:
+        """当前累计 token 消耗（Generator + Critic）"""
+        return self.generator.total_tokens_used + self.critic.total_tokens_used
+
+    def _exceeds_total_budget(self) -> bool:
+        """是否已超过总 token 预算"""
+        if self.total_token_budget <= 0:
+            return False
+        return self._current_total_tokens() >= self.total_token_budget
+
+    def _exceeds_round_budget(self, round_tokens: int) -> bool:
+        """单轮 token 消耗是否超过预算"""
+        if self.round_token_budget <= 0:
+            return False
+        return round_tokens > self.round_token_budget
 
     def run(self, task: str, initial_draft: str = "") -> RunResult:
         """
@@ -145,23 +187,44 @@ class Orchestrator:
 
         # 主循环：生成 → 审查 → 判断收敛
         while state.current_round < self.max_rounds:
+            # 0. 检查外部停止请求
+            if self._is_stopped():
+                state.convergence_reason = "用户主动停止"
+                break
+
+            # 0.1 检查总 token 预算
+            if self._exceeds_total_budget():
+                state.convergence_reason = (
+                    f"达到总 token 预算 {self.total_token_budget}"
+                )
+                break
+
             iteration_start = time.time()
             round_num = state.current_round + 1
+            round_start_tokens = self._current_total_tokens()
 
             logger.info(f"--- 第 {round_num} 轮迭代开始 ---")
 
             # 1. Generator 生成/修改
             # 传入 on_generator_token 时走流式生成，实时推送 token
             if self.on_generator_token:
+                stop_event = self._stop_event
+
                 def _on_token(token: str) -> None:
+                    if stop_event.is_set():
+                        raise OrchestratorStopped("用户主动停止")
                     self.on_generator_token(round_num, token)
 
-                draft = self.generator.generate_stream(
-                    task=task,
-                    draft=state.draft,
-                    critique=state.critique,
-                    on_token=_on_token,
-                )
+                try:
+                    draft = self.generator.generate_stream(
+                        task=task,
+                        draft=state.draft,
+                        critique=state.critique,
+                        on_token=_on_token,
+                    )
+                except OrchestratorStopped:
+                    state.convergence_reason = "用户主动停止"
+                    break
             else:
                 draft = self.generator.generate(
                     task=task,
@@ -169,6 +232,11 @@ class Orchestrator:
                     critique=state.critique,
                 )
             state.draft = draft
+
+            # 1.1 生成后再次检查停止（Critic 审查是阻塞调用，尽量在此之前停）
+            if self._is_stopped():
+                state.convergence_reason = "用户主动停止"
+                break
 
             # 2. Critic 审查
             critique = self.critic.critique(task, draft)
@@ -204,6 +272,15 @@ class Orchestrator:
                 f"问题数={len(critique.issues)}, "
                 f"耗时={iteration_duration:.2f}s"
             )
+
+            # 4.6 检查单轮 token 预算
+            round_tokens = self._current_total_tokens() - round_start_tokens
+            if self._exceeds_round_budget(round_tokens):
+                state.convergence_reason = (
+                    f"本轮 token 超预算（{round_tokens} > "
+                    f"{self.round_token_budget}）"
+                )
+                break
 
             # 5. 检查收敛
             if self._check_convergence(state):
@@ -272,12 +349,18 @@ class Orchestrator:
         """
         total_time = time.time() - start_time
 
-        # 如果未收敛，取历史中评分最高的版本
+        # 记录累计 token 消耗
+        state.total_tokens = self._current_total_tokens()
+
+        # 如果未收敛，取历史中评分最高的版本。
+        # 注意：因 token 预算 / 用户停止而提前退出时，convergence_reason
+        # 已在主循环中设置，这里不覆盖。
         if not state.converged:
-            state.convergence_reason = (
-                f"达到最大轮数 {self.max_rounds}，未完全收敛，"
-                f"返回历史最优版本"
-            )
+            if not state.convergence_reason:
+                state.convergence_reason = (
+                    f"达到最大轮数 {self.max_rounds}，未完全收敛，"
+                    f"返回历史最优版本"
+                )
             final_output = state.get_best_draft()
         else:
             final_output = state.draft

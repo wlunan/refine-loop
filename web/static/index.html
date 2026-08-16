@@ -415,6 +415,7 @@
 <script>
   let es = null;
   let finished = false;
+  let currentRunId = null;
   const rounds = new Map();   // round -> { gen, critic }
   const scores = [];          // {round, score}
 
@@ -439,6 +440,7 @@
   function clearAll() {
     rounds.clear();
     scores.length = 0;
+    currentRunId = null;
     document.getElementById('dialogue').innerHTML =
       '<div class="empty-tip" id="emptyTip">运行中...</div>';
     document.getElementById('trendBar').style.display = 'none';
@@ -632,6 +634,9 @@
 
   function handleEvent(event) {
     switch (event.type) {
+      case 'run_id':
+        currentRunId = event.run_id;
+        break;
       case 'status':
         setStatus('running', event.message);
         break;
@@ -691,9 +696,14 @@
   }
 
   function stopRun() {
+    // 通知后端真正中断后台迭代
+    if (currentRunId) {
+      fetch('/api/stop?run_id=' + encodeURIComponent(currentRunId), { method: 'POST' })
+        .catch(function () { /* 忽略网络错误 */ });
+    }
     if (es) { es.close(); es = null; }
     finished = true;
-    setStatus('done', '已停止接收');
+    setStatus('done', '已停止');
     setRunning(false);
   }
 </script>

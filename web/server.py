@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import threading
+import uuid
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -26,6 +27,10 @@ from src.orchestrator import Orchestrator
 app = FastAPI(title="Generator-Critic Web")
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+# 活跃运行表：run_id -> Orchestrator，用于支持 /api/stop 中断后台迭代
+_active_runs = {}
+_active_runs_lock = threading.Lock()
 
 
 @app.get("/")
@@ -65,6 +70,8 @@ async def stream(request: Request):
             _empty(), media_type="text/event-stream"
         )
 
+    run_id = uuid.uuid4().hex
+
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -96,10 +103,13 @@ async def stream(request: Request):
         on_generator_token=on_token,
         on_round_complete=on_round,
     )
+    with _active_runs_lock:
+        _active_runs[run_id] = orchestrator
 
     def run():
         """在后台线程中执行迭代，避免阻塞事件循环"""
         try:
+            emit({"type": "run_id", "run_id": run_id})
             emit({"type": "status", "message": "开始迭代..."})
             result = orchestrator.run(task)
             emit({
@@ -114,16 +124,22 @@ async def stream(request: Request):
         except Exception as e:  # noqa: BLE001
             emit({"type": "error", "message": str(e)})
         finally:
+            with _active_runs_lock:
+                _active_runs.pop(run_id, None)
             emit({"type": "end"})
 
     threading.Thread(target=run, daemon=True).start()
 
     async def event_generator():
-        while True:
-            event = await queue.get()
-            yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
-            if event.get("type") == "end":
-                break
+        try:
+            while True:
+                event = await queue.get()
+                yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+                if event.get("type") == "end":
+                    break
+        finally:
+            # 客户端断开（主动停止或直接关闭页面）时，同步中断后台迭代
+            orchestrator.stop()
 
     return StreamingResponse(
         event_generator(),
@@ -134,6 +150,23 @@ async def stream(request: Request):
             "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲，保证实时推送
         },
     )
+
+
+@app.post("/api/stop")
+async def stop(request: Request):
+    """
+    停止指定 run_id 对应的迭代任务
+
+    查询参数：
+        run_id: 由 /api/stream 返回的运行 ID
+    """
+    run_id = request.query_params.get("run_id", "")
+    with _active_runs_lock:
+        orchestrator = _active_runs.get(run_id)
+    if orchestrator is None:
+        return {"ok": False, "message": "未找到运行中的任务"}
+    orchestrator.stop()
+    return {"ok": True, "message": "已发送停止请求"}
 
 
 if __name__ == "__main__":

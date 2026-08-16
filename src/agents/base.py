@@ -127,13 +127,9 @@ class BaseAgent(ABC):
             response = self.llm.invoke(messages, **kwargs)
 
             # 统计 token 使用量
-            if hasattr(response, "usage_metadata") and response.usage_metadata:
-                tokens = response.usage_metadata.get("total_tokens", 0)
-                self.total_tokens_used += tokens
-                logger.debug(
-                    f"[{self.role.value}] 本轮 token: {tokens}, "
-                    f"累计: {self.total_tokens_used}"
-                )
+            self._accumulate_usage(
+                getattr(response, "usage_metadata", None)
+            )
 
             content = response.content
             duration = time.time() - start_time
@@ -182,6 +178,10 @@ class BaseAgent(ABC):
                 f"[{self.role.value}] 流式调用 LLM，消息长度: {len(user_message)}"
             )
             for chunk in self.llm.stream(messages, **kwargs):
+                # 统计 token：多数模型在最后一个 chunk 才返回 usage_metadata
+                self._accumulate_usage(
+                    getattr(chunk, "usage_metadata", None)
+                )
                 piece = chunk.content if hasattr(chunk, "content") else str(chunk)
                 if piece:
                     yield piece
@@ -227,6 +227,13 @@ class BaseAgent(ABC):
                 )
             except Exception as e:
                 last_exception = e
+                # 不可重试的错误（如 401 鉴权失败、400 参数错误）立即抛出，
+                # 避免无意义的等待
+                if not self._is_retryable(e):
+                    logger.error(
+                        f"[{self.role.value}] 不可重试错误，立即放弃: {str(e)}"
+                    )
+                    raise
                 if attempt < max_retries:
                     logger.warning(
                         f"[{self.role.value}] 第 {attempt} 次调用失败，"
@@ -240,6 +247,54 @@ class BaseAgent(ABC):
                     )
 
         raise last_exception  # type: ignore
+
+    def _accumulate_usage(self, usage: Optional[dict]) -> None:
+        """
+        累计一次 LLM 调用的 token 使用量
+
+        兼容不同模型返回 usage_metadata 的时机：
+        - invoke：直接在响应对象上
+        - stream：通常在最后一个 chunk 上
+
+        Args:
+            usage: 模型的 usage_metadata 字典，可能为 None
+        """
+        if not usage:
+            return
+        tokens = usage.get("total_tokens", 0)
+        if not tokens:
+            return
+        self.total_tokens_used += tokens
+        logger.debug(
+            f"[{self.role.value}] 本轮 token: {tokens}, "
+            f"累计: {self.total_tokens_used}"
+        )
+
+    @staticmethod
+    def _is_retryable(exc: Exception) -> bool:
+        """
+        判断某个异常是否值得重试
+
+        规则：
+        - 429（限流）：可重试
+        - 4xx（除 429，如 401 鉴权失败、400 参数错误）：不可重试
+        - 5xx（服务端错误）：可重试
+        - 无法判断时：默认可重试（保守，保持原有行为）
+
+        Args:
+            exc: 捕获到的异常
+
+        Returns:
+            是否可重试
+        """
+        status = getattr(exc, "status_code", None)
+        if status is None:
+            return True
+        if status == 429:
+            return True
+        if 400 <= status < 500:
+            return False
+        return True
 
     def reset_token_counter(self) -> None:
         """重置 token 计数器"""
