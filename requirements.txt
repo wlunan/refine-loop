@@ -1,0 +1,13 @@
+# 核心依赖
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langgraph>=0.2.0
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+
+# 测试依赖
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# 可选：工作流可视化（需要系统安装 graphviz）
+# graphviz>=0.20.0
