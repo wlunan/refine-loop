@@ -66,6 +66,7 @@ class Orchestrator:
         generator: Optional[GeneratorAgent] = None,
         critic: Optional[CriticAgent] = None,
         on_iteration_complete: Optional[Callable[[int, CritiqueResult], None]] = None,
+        on_round_complete: Optional[Callable[[int, str, CritiqueResult], None]] = None,
     ):
         """
         初始化编排器
@@ -75,7 +76,9 @@ class Orchestrator:
             max_rounds: 最大迭代轮数，为 None 时使用配置默认值
             generator: 外部注入的 Generator（用于自定义或测试）
             critic: 外部注入的 Critic（用于自定义或测试）
-            on_iteration_complete: 每轮完成后的回调函数
+            on_iteration_complete: 每轮完成后的回调函数（仅评分结果）
+            on_round_complete: 每轮完成后的回调函数（含完整草稿与审查结果），
+                签名: (round_num, draft, critique)，用于实时观察对话内容
         """
         config = get_config()
         self.domain = domain
@@ -89,6 +92,7 @@ class Orchestrator:
 
         # 回调函数
         self.on_iteration_complete = on_iteration_complete
+        self.on_round_complete = on_round_complete
 
         logger.info(
             f"Orchestrator 初始化完成: domain={domain}, "
@@ -171,6 +175,13 @@ class Orchestrator:
                     self.on_iteration_complete(round_num, critique)
                 except Exception as e:
                     logger.warning(f"回调执行失败: {e}")
+
+            # 4.5 触发完整轮次回调（含草稿全文，用于实时观察对话内容）
+            if self.on_round_complete:
+                try:
+                    self.on_round_complete(round_num, draft, critique)
+                except Exception as e:
+                    logger.warning(f"轮次回调执行失败: {e}")
 
             logger.info(
                 f"第 {round_num} 轮完成: 评分={critique.score}, "

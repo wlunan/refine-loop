@@ -12,7 +12,9 @@ from typing import Optional
 from dotenv import load_dotenv
 
 # 加载 .env 文件
-load_dotenv()
+# override=True 确保 .env 中的配置优先于系统环境变量，
+# 避免系统里残留的旧 OPENAI_API_KEY 覆盖 .env 中的有效 Key
+load_dotenv(override=True)
 
 
 @dataclass

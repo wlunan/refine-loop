@@ -57,3 +57,6 @@ logs/
 # 工作流可视化输出
 workflow.png
 *.png
+
+# IDE 本地数据与工作记忆（含敏感信息，不入库）
+.codebuddy/
