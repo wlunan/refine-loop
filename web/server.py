@@ -21,8 +21,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
-from config.settings import get_config
+from config.settings import get_config, setup_logging
 from src.orchestrator import Orchestrator
+
+setup_logging()
 
 app = FastAPI(title="Generator-Critic Web")
 

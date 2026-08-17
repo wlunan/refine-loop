@@ -13,6 +13,7 @@ from langgraph.graph import END, StateGraph
 
 from src.agents.critic import CriticAgent
 from src.agents.generator import GeneratorAgent
+from src.convergence import evaluate_convergence
 from src.models.schemas import CritiqueResult, IterationRecord
 
 logger = logging.getLogger(__name__)
@@ -173,64 +174,46 @@ class GeneratorCriticGraph:
         )
         history.append(record)
 
+        # 收敛判定必须在节点内完成：只有节点返回的 dict 才会被 LangGraph
+        # 持久化到最终 state，条件边函数（_should_continue）对 state 的
+        # 修改不会生效。
+        decision = evaluate_convergence(
+            critique=critique,
+            current_round=current_round,
+            max_rounds=state.get("max_rounds", self.max_rounds),
+            score_threshold=self.score_threshold,
+            no_progress_rounds=self.no_progress_rounds,
+            history=history,
+        )
+
         return {
             "critique": critique,
             "history": history,
+            "converged": decision.converged,
+            "convergence_reason": decision.reason,
         }
 
     def _should_continue(self, state: GraphState) -> str:
         """
         条件判断节点：决定继续迭代还是终止
-        
+
+        收敛结果已在 _critique_node 中写入 state，
+        这里仅依据 convergence_reason 是否非空来决定路由。
+
         Args:
             state: 当前图状态
-        
+
         Returns:
             "continue" 或 "end"
         """
-        critique = state.get("critique")
-        current_round = state.get("current_round", 0)
-        max_rounds = state.get("max_rounds", self.max_rounds)
-        history = state.get("history", [])
-
-        if critique is None:
-            return "continue"
-
-        # 条件1：质量达标
-        if (
-            critique.acceptable
-            and critique.score >= self.score_threshold
-        ):
-            logger.info(
-                f"[Graph] 收敛：质量达标，评分 {critique.score}"
-            )
-            state["converged"] = True
-            state["convergence_reason"] = f"质量达标：评分 {critique.score}"
+        reason = state.get("convergence_reason", "")
+        if reason:
+            logger.info(f"[Graph] 终止：{reason}")
             return "end"
 
-        # 条件2：达到最大轮数
-        if current_round >= max_rounds:
-            logger.info(
-                f"[Graph] 终止：达到最大轮数 {max_rounds}"
-            )
-            state["converged"] = False
-            state["convergence_reason"] = f"达到最大轮数 {max_rounds}"
-            return "end"
-
-        # 条件3：无新反馈
-        if len(history) >= self.no_progress_rounds + 1:
-            recent = history[-(self.no_progress_rounds + 1):]
-            all_same = all(
-                recent[i].critique.issues_match(recent[i + 1].critique)
-                for i in range(len(recent) - 1)
-            )
-            if all_same:
-                logger.info("[Graph] 收敛：连续无新反馈")
-                state["converged"] = True
-                state["convergence_reason"] = "连续无新反馈，无法继续优化"
-                return "end"
-
-        logger.info(f"[Graph] 继续迭代，当前第 {current_round} 轮")
+        logger.info(
+            f"[Graph] 继续迭代，当前第 {state.get('current_round', 0)} 轮"
+        )
         return "continue"
 
     def run(self, task: str, initial_draft: str = "") -> Dict:

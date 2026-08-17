@@ -18,7 +18,7 @@ import os
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config.settings import get_config
+from config.settings import get_config, setup_logging
 from src.orchestrator import Orchestrator
 from src.models.schemas import CritiqueResult
 
@@ -53,6 +53,7 @@ def on_round_complete(round_num: int, draft: str, critique: CritiqueResult):
 
 
 def main():
+    setup_logging()
     # 1. 提高收敛阈值：默认 85 分就达标，简单任务第一轮就能收敛。
     #    这里调到 95，让模型更难一次达标，从而触发多轮迭代。
     #    （get_config() 返回全局单例，在创建 Orchestrator 之前修改即可生效）

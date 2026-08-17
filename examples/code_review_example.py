@@ -9,6 +9,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from config.settings import setup_logging
 from src.orchestrator import Orchestrator
 from src.models.schemas import CritiqueResult
 
@@ -29,6 +30,7 @@ def on_iteration_complete(round_num: int, critique: CritiqueResult) -> None:
 
 
 def main():
+    setup_logging()
     # 创建代码领域的编排器
     orchestrator = Orchestrator(
         domain="code",

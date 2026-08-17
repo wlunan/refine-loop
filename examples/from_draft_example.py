@@ -9,10 +9,12 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from config.settings import setup_logging
 from src.orchestrator import Orchestrator
 
 
 def main():
+    setup_logging()
     # 初始草稿（用户已有的内容）
     initial_draft = """
 def binary_search(arr, target):

@@ -8,10 +8,12 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from config.settings import setup_logging
 from src.graph import GeneratorCriticGraph
 
 
 def main():
+    setup_logging()
     # 创建基于 LangGraph 的工作流
     graph = GeneratorCriticGraph(
         domain="code",

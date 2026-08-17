@@ -9,11 +9,13 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from config.settings import setup_logging
 from src.orchestrator import Orchestrator
 from src.models.schemas import CritiqueResult
 
 
 def main():
+    setup_logging()
     # 创建文案写作领域的编排器
     orchestrator = Orchestrator(
         domain="writing",

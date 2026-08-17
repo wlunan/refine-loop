@@ -15,6 +15,7 @@ from typing import Callable, Optional
 from config.settings import get_config
 from src.agents.critic import CriticAgent
 from src.agents.generator import GeneratorAgent
+from src.convergence import evaluate_convergence
 from src.models.schemas import (
     AgentState,
     CritiqueResult,
@@ -293,47 +294,27 @@ class Orchestrator:
 
     def _check_convergence(self, state: AgentState) -> bool:
         """
-        检查是否满足收敛条件
-        三种收敛条件，满足任一即收敛：
-        1. 质量达标：score >= threshold 且 acceptable=True
-        2. 无新反馈：连续 N 轮 issues 完全相同
-        3. 达到最大轮数（在循环条件中处理）
-        
+        检查是否满足收敛条件（委托给共享的 evaluate_convergence）
+
         Args:
             state: 当前系统状态
-        
-        Returns:
-            是否已收敛
-        """
-        critique = state.critique
-        if critique is None:
-            return False
 
-        # 条件1：质量达标
-        if critique.acceptable and critique.score >= self.score_threshold:
-            state.converged = True
-            state.convergence_reason = (
-                f"质量达标：评分 {critique.score} >= 阈值 {self.score_threshold}"
-            )
+        Returns:
+            是否应停止迭代
+        """
+        decision = evaluate_convergence(
+            critique=state.critique,
+            current_round=state.current_round,
+            max_rounds=self.max_rounds,
+            score_threshold=self.score_threshold,
+            no_progress_rounds=self.no_progress_rounds,
+            history=state.history,
+        )
+        if decision.should_stop:
+            state.converged = decision.converged
+            state.convergence_reason = decision.reason
             logger.info(f"收敛：{state.convergence_reason}")
             return True
-
-        # 条件2：无新反馈（连续 N 轮 issues 相同）
-        if len(state.history) >= self.no_progress_rounds + 1:
-            recent = state.history[-(self.no_progress_rounds + 1):]
-            all_same = all(
-                recent[i].critique.issues_match(recent[i + 1].critique)
-                for i in range(len(recent) - 1)
-            )
-            if all_same:
-                state.converged = True
-                state.convergence_reason = (
-                    f"连续 {self.no_progress_rounds} 轮无新反馈，"
-                    f"无法继续优化"
-                )
-                logger.info(f"收敛：{state.convergence_reason}")
-                return True
-
         return False
 
     def _build_result(self, state: AgentState, start_time: float) -> RunResult:

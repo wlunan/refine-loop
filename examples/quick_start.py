@@ -10,6 +10,7 @@ import os
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from config.settings import setup_logging
 from src.orchestrator import Orchestrator
 from src.models.schemas import CritiqueResult
 
@@ -44,6 +45,7 @@ def on_round_complete(round_num: int, draft: str, critique: CritiqueResult):
 
 
 def main():
+    setup_logging()
     # 1. 创建编排器（指定领域和最大轮数，注册逐轮回调）
     orchestrator = Orchestrator(
         domain="general",  # 可选: general/code/writing/design

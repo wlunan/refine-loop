@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Optional
@@ -56,9 +57,9 @@ class OrchestratorConfig:
     # 连续无新反馈轮数阈值
     no_progress_rounds: int = 2
     # 单轮最大 token 预算
-    round_token_budget: int = 8000
+    round_token_budget: int = 30000
     # 总 token 预算
-    total_token_budget: int = 50000
+    total_token_budget: int = 100000
 
 
 @dataclass
@@ -92,10 +93,11 @@ _config: Optional[SystemConfig] = None
 
 
 def get_config() -> SystemConfig:
-    """获取全局配置单例"""
+    """获取全局配置单例（首次构建时校验配置合法性）"""
     global _config
     if _config is None:
         _config = SystemConfig()
+        _config.validate()
     return _config
 
 
@@ -104,4 +106,26 @@ def reload_config() -> SystemConfig:
     global _config
     load_dotenv(override=True)
     _config = SystemConfig()
+    _config.validate()
     return _config
+
+
+def setup_logging(level: Optional[str] = None) -> None:
+    """
+    配置根 logger，使各模块的 logger.info / logger.debug 输出可见。
+
+    默认从配置读取日志级别；当 DEBUG=true 时强制使用 DEBUG 级别。
+    幂等：重复调用不会重复添加 handler（logging.basicConfig 仅首次生效）。
+
+    Args:
+        level: 可选，显式指定日志级别（DEBUG/INFO/WARNING/ERROR）
+    """
+    cfg = get_config()
+    if level is None:
+        level = "DEBUG" if cfg.debug else cfg.log_level
+    numeric = getattr(logging, str(level).upper(), logging.INFO)
+    logging.basicConfig(
+        level=numeric,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
