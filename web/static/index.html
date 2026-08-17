@@ -342,6 +342,66 @@
     margin-bottom: 16px;
     white-space: pre-wrap;
   }
+
+  /* 模式切换 */
+  .mode-switch { display: flex; gap: 8px; margin-bottom: 14px; }
+  .mode-btn {
+    flex: 1; padding: 9px; border: 1px solid var(--border); border-radius: 10px;
+    background: #fff; color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: all .15s;
+  }
+  .mode-btn.active {
+    border-color: var(--primary); color: var(--primary);
+    background: rgba(99,102,241,0.06); font-weight: 600;
+  }
+
+  /* 目录选择器 */
+  .browse-row { display: flex; gap: 8px; }
+  .browse-row input { flex: 1; min-width: 0; }
+  .browse-btn {
+    padding: 0 14px; border: 1px solid var(--border); border-radius: 10px;
+    background: #fff; cursor: pointer; font-size: 13px; white-space: nowrap;
+    transition: all .15s;
+  }
+  .browse-btn:hover { border-color: var(--primary); color: var(--primary); }
+  .browser {
+    margin-top: 10px; border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; display: none;
+  }
+  .browser.open { display: block; }
+  .browser-head {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    background: #f9fafb; border-bottom: 1px solid var(--border);
+  }
+  .browser-path {
+    flex: 1; font-size: 12px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .browser-list { max-height: 220px; overflow-y: auto; }
+  .browser-item {
+    padding: 8px 12px; font-size: 13px; cursor: pointer;
+    border-bottom: 1px solid #f3f4f6; display: flex; align-items: center; gap: 6px;
+  }
+  .browser-item:hover { background: #f5f6fb; }
+  .browser-item .dir-ico { color: var(--primary); }
+
+  /* 文件操作日志 */
+  .tool-log {
+    background: var(--card); border-radius: var(--radius); padding: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .tool-entry { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+  .tool-entry-head {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    background: #f9fafb; font-size: 12px; color: var(--muted);
+  }
+  .tool-name { font-weight: 600; color: var(--primary); font-family: monospace; }
+  .tool-round { margin-left: auto; }
+  .tool-entry-body {
+    padding: 8px 10px; font-size: 12px; font-family: monospace;
+    white-space: pre-wrap; word-break: break-word; color: var(--text);
+  }
+  .tool-entry-body.args { color: #7c5c00; background: #fffbeb; }
 </style>
 </head>
 <body>
@@ -354,6 +414,25 @@
     <!-- 控制面板 -->
     <aside class="panel">
       <h2>任务配置</h2>
+      <div class="mode-switch">
+        <button class="mode-btn active" id="modeText" onclick="setMode('text')">文本生成</button>
+        <button class="mode-btn" id="modeFile" onclick="setMode('file')">文件操作</button>
+      </div>
+      <div class="field" id="workspaceField" style="display:none">
+        <label for="workspace">工作区目录</label>
+        <div class="browse-row">
+          <input type="text" id="workspace" placeholder="例如 D:\my-project">
+          <button type="button" class="browse-btn" onclick="openBrowser()">浏览</button>
+        </div>
+        <div class="browser" id="browser">
+          <div class="browser-head">
+            <button type="button" class="ctrl-btn" onclick="browseUp()">↑ 上级</button>
+            <span class="browser-path" id="browserPath"></span>
+            <button type="button" class="ctrl-btn" onclick="confirmBrowse()">选择此目录</button>
+          </div>
+          <div class="browser-list" id="browserList"></div>
+        </div>
+      </div>
       <div class="field">
         <label for="task">任务描述</label>
         <textarea id="task" placeholder="例如：设计一个支持百万级日活用户的短视频 App 后端架构方案...">设计一个支持百万级日活用户的短视频 App 后端架构方案，要求包含：1. 系统分层架构 2. 视频存储与 CDN 分发 3. 推荐系统链路 4. 数据库选型与分库分表 5. 缓存设计 6. 高可用与容灾方案</textarea>
@@ -400,6 +479,9 @@
         <div class="empty-tip" id="emptyTip">配置任务后点击「开始运行」，每轮对话将在这里实时显示</div>
       </div>
 
+      <div class="section-title" id="toolLogTitle" style="display:none">文件操作日志</div>
+      <div class="tool-log" id="toolLog" style="display:none"></div>
+
       <div class="section-title">评分趋势</div>
       <div class="trend-bar" id="trendBar" style="display:none"></div>
 
@@ -416,6 +498,8 @@
   let es = null;
   let finished = false;
   let currentRunId = null;
+  let mode = 'text';          // 'text' | 'file'
+  let browserPath = '';       // 目录选择器当前浏览路径
   const rounds = new Map();   // round -> { gen, critic }
   const scores = [];          // {round, score}
 
@@ -446,9 +530,106 @@
     document.getElementById('trendBar').style.display = 'none';
     document.getElementById('trendBar').innerHTML = '';
     document.getElementById('finalCard').style.display = 'none';
+    const toolLog = document.getElementById('toolLog');
+    toolLog.innerHTML = '';
+    if (mode !== 'file') {
+      toolLog.style.display = 'none';
+      document.getElementById('toolLogTitle').style.display = 'none';
+    }
     const box = document.getElementById('errorBox');
     box.style.display = 'none';
     box.textContent = '';
+  }
+
+  function setMode(m) {
+    mode = m;
+    document.getElementById('modeText').className =
+      'mode-btn' + (m === 'text' ? ' active' : '');
+    document.getElementById('modeFile').className =
+      'mode-btn' + (m === 'file' ? ' active' : '');
+    document.getElementById('workspaceField').style.display =
+      m === 'file' ? 'block' : 'none';
+    if (m !== 'file') {
+      document.getElementById('toolLog').style.display = 'none';
+      document.getElementById('toolLogTitle').style.display = 'none';
+    }
+  }
+
+  function openBrowser() {
+    browseDir(document.getElementById('workspace').value.trim());
+  }
+
+  function browseDir(path) {
+    fetch('/api/browse_dir?path=' + encodeURIComponent(path))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        browserPath = data.path || '';
+        document.getElementById('browserPath').textContent = browserPath || '(根目录)';
+        const list = document.getElementById('browserList');
+        list.innerHTML = '';
+        if (!data.exists) {
+          list.innerHTML = '<div class="browser-item">目录不存在</div>';
+        } else if (data.dirs.length === 0) {
+          list.innerHTML = '<div class="browser-item">(无子目录)</div>';
+        } else {
+          data.dirs.forEach(function (d) {
+            const item = document.createElement('div');
+            item.className = 'browser-item';
+            item.innerHTML = '<span class="dir-ico">📁</span>' + escapeHtml(d);
+            item.onclick = function () {
+              browseDir(browserPath ? browserPath + '/' + d : d);
+            };
+            list.appendChild(item);
+          });
+        }
+        document.getElementById('browser').classList.add('open');
+      })
+      .catch(function () {
+        document.getElementById('browserList').innerHTML =
+          '<div class="browser-item">加载失败</div>';
+        document.getElementById('browser').classList.add('open');
+      });
+  }
+
+  function browseUp() {
+    fetch('/api/browse_dir?path=' + encodeURIComponent(browserPath))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.parent) browseDir(data.parent);
+      });
+  }
+
+  function confirmBrowse() {
+    document.getElementById('workspace').value = browserPath;
+    document.getElementById('browser').classList.remove('open');
+  }
+
+  function handleTool(event) {
+    const log = document.getElementById('toolLog');
+    log.style.display = 'block';
+    document.getElementById('toolLogTitle').style.display = 'block';
+
+    const entry = document.createElement('div');
+    entry.className = 'tool-entry';
+    const head = document.createElement('div');
+    head.className = 'tool-entry-head';
+    const isCall = event.subtype === 'tool_call';
+    head.innerHTML =
+      '<span class="tool-name">' + escapeHtml(event.tool) + '</span>' +
+      '<span>' + (isCall ? '调用' : '结果') + '</span>' +
+      '<span class="tool-round">第 ' + event.round + ' 轮</span>';
+    const body = document.createElement('div');
+    if (isCall) {
+      body.className = 'tool-entry-body args';
+      body.textContent = JSON.stringify(event.arguments || {});
+    } else {
+      body.className = 'tool-entry-body';
+      body.textContent = event.result || '';
+    }
+    entry.appendChild(head);
+    entry.appendChild(body);
+    log.appendChild(entry);
+    entry.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   function escapeHtml(s) {
@@ -643,6 +824,9 @@
       case 'token':
         handleToken(event.round, event.token);
         break;
+      case 'tool':
+        handleTool(event);
+        break;
       case 'critic':
         handleCritic(event);
         break;
@@ -666,19 +850,34 @@
     const task = document.getElementById('task').value.trim();
     if (!task) { alert('请输入任务描述'); return; }
 
-    clearAll();
-    finished = false;
-    setRunning(true);
-    setStatus('running', '正在连接...');
-
     const domain = document.getElementById('domain').value;
     const maxRounds = document.getElementById('maxRounds').value;
     const threshold = document.getElementById('threshold').value;
 
-    const url = '/api/stream?task=' + encodeURIComponent(task) +
-      '&domain=' + encodeURIComponent(domain) +
-      '&max_rounds=' + encodeURIComponent(maxRounds) +
-      '&threshold=' + encodeURIComponent(threshold);
+    let url;
+    if (mode === 'file') {
+      const workspace = document.getElementById('workspace').value.trim();
+      if (!workspace) { alert('请选择工作区目录'); return; }
+      url = '/api/stream_files?task=' + encodeURIComponent(task) +
+        '&workspace=' + encodeURIComponent(workspace) +
+        '&domain=' + encodeURIComponent(domain) +
+        '&max_rounds=' + encodeURIComponent(maxRounds) +
+        '&threshold=' + encodeURIComponent(threshold);
+    } else {
+      url = '/api/stream?task=' + encodeURIComponent(task) +
+        '&domain=' + encodeURIComponent(domain) +
+        '&max_rounds=' + encodeURIComponent(maxRounds) +
+        '&threshold=' + encodeURIComponent(threshold);
+    }
+
+    clearAll();
+    if (mode === 'file') {
+      document.getElementById('toolLog').style.display = 'block';
+      document.getElementById('toolLogTitle').style.display = 'block';
+    }
+    finished = false;
+    setRunning(true);
+    setStatus('running', '正在连接...');
 
     es = new EventSource(url);
     es.onmessage = function(e) {

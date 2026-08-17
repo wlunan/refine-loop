@@ -21,6 +21,7 @@ from src.models.schemas import (
     CritiqueResult,
     IterationRecord,
 )
+from src.tools.filesystem import FileWorkspace
 
 logger = logging.getLogger(__name__)
 
@@ -291,6 +292,146 @@ class Orchestrator:
         result = self._build_result(state, start_time)
         logger.info(result.summary())
         return result
+
+    def run_with_files(
+        self,
+        task: str,
+        workspace_dir: str,
+        on_generator_event: Optional[Callable[[dict], None]] = None,
+        on_round_complete: Optional[Callable[[int, str, CritiqueResult], None]] = None,
+    ) -> RunResult:
+        """
+        执行文件级的 Generator-Critic 迭代流程
+
+        与 run 不同，Generator 直接在 workspace_dir 目录内创建 / 读取 /
+        修改 / 删除真实文件；每轮把工作区文件快照交给 Critic 审查，
+        审查反馈再驱动 Generator 继续修改文件，直到收敛。
+
+        Args:
+            task: 任务描述
+            workspace_dir: 工作区根目录（绝对路径）
+            on_generator_event: Generator 工具调用事件回调，签名 on_event(dict)，
+                事件 dict 会额外带上 "round" 字段
+            on_round_complete: 每轮完成回调，签名 (round_num, snapshot, critique)
+
+        Returns:
+            RunResult，final_output 为最终工作区文件快照
+        """
+        start_time = time.time()
+        workspace = FileWorkspace(workspace_dir)
+        logger.info(f"开始执行文件模式任务: {task[:80]}... 工作区={workspace_dir}")
+
+        state = AgentState(
+            task=task,
+            domain=self.domain,
+            draft="",
+            max_rounds=self.max_rounds,
+        )
+
+        while state.current_round < self.max_rounds:
+            # 检查停止与总 token 预算
+            if self._is_stopped():
+                state.convergence_reason = "用户主动停止"
+                break
+            if self._exceeds_total_budget():
+                state.convergence_reason = f"达到总 token 预算 {self.total_token_budget}"
+                break
+
+            round_num = state.current_round + 1
+            logger.info(f"--- 第 {round_num} 轮文件迭代开始 ---")
+
+            # 1. Generator 操作文件（首轮用原始任务，后续轮带上审查反馈）
+            gen_task = self._build_file_feedback_task(task, state.critique)
+
+            def _on_event(event: dict) -> None:
+                if on_generator_event:
+                    event = dict(event)
+                    event["round"] = round_num
+                    on_generator_event(event)
+
+            self.generator.generate_with_files(
+                task=gen_task,
+                workspace_dir=workspace_dir,
+                on_event=_on_event,
+            )
+
+            # 1.1 生成后检查停止
+            if self._is_stopped():
+                state.convergence_reason = "用户主动停止"
+                break
+
+            # 2. 打包工作区文件快照作为"草稿"
+            snapshot = workspace.snapshot()
+            state.draft = snapshot
+
+            # 3. Critic 审查快照
+            critique = self.critic.critique(task, snapshot)
+            state.critique = critique
+            state.current_round = round_num
+
+            # 4. 记录迭代
+            state.add_iteration(IterationRecord(
+                round=round_num,
+                draft=snapshot,
+                critique=critique,
+                duration_seconds=time.time() - start_time,
+            ))
+
+            # 5. 触发回调
+            if on_round_complete:
+                try:
+                    on_round_complete(round_num, snapshot, critique)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"轮次回调执行失败: {e}")
+
+            logger.info(
+                f"第 {round_num} 轮文件迭代完成: 评分={critique.score}, "
+                f"问题数={len(critique.issues)}"
+            )
+
+            # 6. 检查收敛
+            if self._check_convergence(state):
+                break
+
+        # 构建结果（final_output 为最终文件快照）
+        state.total_tokens = self._current_total_tokens()
+        if not state.converged and not state.convergence_reason:
+            state.convergence_reason = (
+                f"达到最大轮数 {self.max_rounds}，未完全收敛"
+            )
+        final_output = workspace.snapshot()
+
+        result = RunResult(
+            final_output=final_output,
+            state=state,
+            iterations=state.current_round,
+            converged=state.converged,
+            convergence_reason=state.convergence_reason or "未知",
+            score_trend=state.get_score_trend(),
+            total_time_seconds=time.time() - start_time,
+        )
+        logger.info(result.summary())
+        return result
+
+    @staticmethod
+    def _build_file_feedback_task(task: str, critique: Optional[CritiqueResult]) -> str:
+        """把上一轮 Critic 审查反馈拼进任务，驱动 Generator 修改文件"""
+        if critique is None:
+            return task
+        issues = "\n".join(
+            f"{i + 1}. {x}" for i, x in enumerate(critique.issues)
+        ) or "无"
+        suggestions = "\n".join(
+            f"{i + 1}. {x}" for i, x in enumerate(critique.suggestions)
+        ) or "无"
+        return (
+            f"{task}\n\n"
+            f"【上一轮审查反馈】\n"
+            f"评分: {critique.score}/100\n"
+            f"问题:\n{issues}\n\n"
+            f"修改建议:\n{suggestions}\n\n"
+            f"请根据以上反馈，修改工作区中的相关文件。"
+        )
 
     def _check_convergence(self, state: AgentState) -> bool:
         """

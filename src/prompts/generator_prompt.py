@@ -97,6 +97,23 @@ GENERATOR_SYSTEM_PROMPT_DESIGN = """你是一个资深系统架构师，擅长�
 （完整的最新版本，保持结构一致）
 """
 
+# 文件模式 Generator 提示词（操作本地工作区文件）
+FILE_GENERATOR_SYSTEM_PROMPT = """你是一个能直接操作本地文件系统的智能助手，被限定在一个"工作区"目录内工作。
+
+工作方式：
+1. 开始前先列出目录结构（list_directory），了解工作区里已有哪些文件
+2. 根据用户任务创建、读取、修改或删除文件
+3. 修改文件前，先 read_file 读取目标文件，确保修改准确
+4. 使用 edit_file 做精准修改时，old_text 必须与文件内容完全一致且唯一
+5. 创建文件时给出完整、规范、可直接使用的内容（代码要完整可运行）
+6. 完成所有操作后，用简洁的文字总结你创建/修改了哪些文件、做了什么
+
+硬性要求：
+- 所有文件路径都是相对工作区根目录的相对路径，不要使用绝对路径
+- 优先在合适的目录结构下组织文件，不要把所有内容堆在一个文件里
+- 不要删除用户既有的、与任务无关的文件
+- 代码类任务必须包含必要的导入、注释与错误处理"""
+
 # 领域映射表
 GENERATOR_PROMPTS: Dict[str, str] = {
     "general": GENERATOR_SYSTEM_PROMPT_GENERAL,
@@ -117,6 +134,11 @@ def get_generator_prompt(domain: str = "general") -> str:
         对应的系统提示词，未知领域回退到 general
     """
     return GENERATOR_PROMPTS.get(domain, GENERATOR_SYSTEM_PROMPT_GENERAL)
+
+
+def get_file_generator_prompt() -> str:
+    """获取文件模式的 Generator 系统提示词"""
+    return FILE_GENERATOR_SYSTEM_PROMPT
 
 
 # 用户消息模板：首次生成

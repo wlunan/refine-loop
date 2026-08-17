@@ -13,11 +13,14 @@ from langchain_core.language_models import BaseChatModel
 
 from config.settings import get_config
 from src.agents.base import BaseAgent
+from src.agents.tool_agent import ToolAgent
 from src.models.schemas import AgentRole, CritiqueResult
 from src.prompts.generator_prompt import (
     get_generator_prompt,
+    get_file_generator_prompt,
     build_generator_user_message,
 )
+from src.tools.filesystem import FileWorkspace, build_file_tools
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +166,46 @@ class GeneratorAgent(BaseAgent):
                 on_token(piece)
 
         return self._extract_final_output("".join(parts))
+
+    def generate_with_files(
+        self,
+        task: str,
+        workspace_dir: str,
+        on_event: Optional[Callable[[dict], None]] = None,
+        max_steps: int = 20,
+    ) -> str:
+        """
+        在指定工作区目录内操作文件，完成任务（文件级生成）
+
+        与 generate 不同，此方法让 Generator 直接创建 / 读取 / 修改 / 删除
+        工作区内的真实文件，通过混合模式工具调用循环（优先原生 tool call，
+        失败降级 JSON 文本协议）自主完成，最终返回一段文字总结。
+
+        Args:
+            task: 任务描述
+            workspace_dir: 工作区根目录（绝对路径），所有文件操作被限制在此目录内
+            on_event: 可选事件回调，用于推送工具调用过程，签名 on_event(dict)
+            max_steps: 最大工具调用步数
+
+        Returns:
+            Agent 完成后的文字总结
+        """
+        workspace = FileWorkspace(workspace_dir)
+        tools = build_file_tools(workspace)
+        agent = ToolAgent(
+            llm=self.llm,
+            tools=tools,
+            system_prompt=get_file_generator_prompt(),
+            on_event=on_event,
+            max_steps=max_steps,
+            usage_callback=self._accumulate_usage,
+        )
+
+        logger.info(
+            f"[Generator] 文件模式生成，工作区: {workspace_dir}, "
+            f"任务长度: {len(task)}"
+        )
+        return agent.run(user_message=task)
 
     def _extract_final_output(self, response: str) -> str:
         """
