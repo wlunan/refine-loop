@@ -53,7 +53,7 @@ logs/
 *.tmp
 *.bak
 *.old
-
+.task_store
 # 工作流可视化输出
 workflow.png
 *.png
