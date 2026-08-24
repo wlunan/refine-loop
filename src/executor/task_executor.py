@@ -1,6 +1,6 @@
 """
 任务执行器
-复用 Orchestrator 执行单个子任务，增加上下文传递和检查点保存
+复用 Orchestrator 执行单个子任务，支持文件写入模式
 """
 
 from __future__ import annotations
@@ -74,8 +74,9 @@ class TaskExecutor:
     """
     子任务执行器
     
-    复用 Orchestrator 的 Generator-Critic 迭代流程，
-    增加上下文传递和检查点保存
+    支持两种模式：
+    1. 文本模式：生成文本内容（默认）
+    2. 文件模式：直接操作工作区文件（use_file_mode=True）
     """
     
     def __init__(
@@ -85,6 +86,7 @@ class TaskExecutor:
         generator: Optional[GeneratorAgent] = None,
         critic: Optional[CriticAgent] = None,
         max_rounds: int = 5,
+        use_file_mode: bool = True,
         on_progress: Optional[Callable[[str, dict], None]] = None,
     ):
         """
@@ -96,6 +98,7 @@ class TaskExecutor:
             generator: 自定义 Generator
             critic: 自定义 Critic
             max_rounds: 单个子任务的最大迭代轮数
+            use_file_mode: 是否使用文件模式（直接操作文件）
             on_progress: 进度回调，签名: (event_type, data)
         """
         self.workspace = workspace
@@ -103,6 +106,7 @@ class TaskExecutor:
         self.generator = generator
         self.critic = critic
         self.max_rounds = max_rounds
+        self.use_file_mode = use_file_mode
         self.on_progress = on_progress
         
         # 停止控制
@@ -159,8 +163,19 @@ class TaskExecutor:
             )
             self._current_orchestrator = orchestrator
             
-            # 3. 执行迭代
-            result = orchestrator.run(task_prompt)
+            # 3. 根据模式执行
+            if self.use_file_mode:
+                # 文件模式：直接操作工作区文件
+                result = orchestrator.run_with_files(
+                    task=task_prompt,
+                    workspace_dir=self.workspace.root,
+                    on_generator_event=lambda e: self._on_generator_event(
+                        task_id, subtask.id, e
+                    ),
+                )
+            else:
+                # 文本模式：生成文本内容
+                result = orchestrator.run(task_prompt)
             
             # 4. 更新子任务状态
             subtask.iterations = result.iterations
@@ -168,9 +183,6 @@ class TaskExecutor:
                 result=result.final_output,
                 score=result.state.critique.score if result.state.critique else 0,
             )
-            
-            # 5. 记录文件变更
-            # TODO: 从 FileWorkspace 的操作日志中提取
             
             # 发送完成事件
             self._emit_progress("subtask_completed", {
@@ -228,6 +240,31 @@ class TaskExecutor:
                 self.store.save_checkpoint(checkpoint)
             except Exception as e:
                 logger.warning(f"保存检查点失败: {e}")
+    
+    def _on_generator_event(
+        self,
+        task_id: str,
+        subtask_id: str,
+        event: dict,
+    ) -> None:
+        """Generator 工具调用事件回调（文件模式）"""
+        event_type = event.get("type", "unknown")
+        
+        if event_type == "tool_call":
+            tool_name = event.get("tool_name", "")
+            tool_input = event.get("input", {})
+            self._emit_progress("file_operation", {
+                "subtask_id": subtask_id,
+                "operation": tool_name,
+                "path": tool_input.get("path", ""),
+                "round": event.get("round", 0),
+            })
+        elif event_type == "tool_result":
+            self._emit_progress("file_result", {
+                "subtask_id": subtask_id,
+                "result": event.get("result", "")[:200],
+                "round": event.get("round", 0),
+            })
     
     def _emit_progress(self, event_type: str, data: dict) -> None:
         """发送进度事件"""

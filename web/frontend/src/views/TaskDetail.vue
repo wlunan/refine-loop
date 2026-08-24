@@ -56,6 +56,26 @@ function handleEvent(data: any) {
     case 'subtask_progress':
       logs.value.push(`[${timestamp}] 第 ${data.round} 轮完成，评分: ${data.score}`)
       break
+    case 'file_operation':
+      // 文件操作事件（文件模式）
+      const op = data.operation || ''
+      const path = data.path || ''
+      if (op.includes('write') || op.includes('create')) {
+        logs.value.push(`[${timestamp}] 📝 写入文件: ${path}`)
+      } else if (op.includes('read')) {
+        logs.value.push(`[${timestamp}] 📖 读取文件: ${path}`)
+      } else if (op.includes('delete')) {
+        logs.value.push(`[${timestamp}] 🗑️ 删除文件: ${path}`)
+      } else {
+        logs.value.push(`[${timestamp}] 🔧 文件操作: ${op} ${path}`)
+      }
+      break
+    case 'file_result':
+      // 文件操作结果
+      if (data.result) {
+        logs.value.push(`[${timestamp}] ✅ 操作完成: ${data.result}`)
+      }
+      break
     case 'subtask_completed':
       logs.value.push(`[${timestamp}] 子任务完成，评分: ${data.score}`)
       taskStore.fetchTask(taskId)

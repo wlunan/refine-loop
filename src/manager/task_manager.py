@@ -206,13 +206,14 @@ class TaskManager:
         task.error = None
         self.store.save_task(task)
         
-        # 创建执行器
+        # 创建执行器（默认使用文件模式，直接操作工作区文件）
         workspace = FileWorkspace(task.workspace_dir)
         executor = TaskExecutor(
             workspace=workspace,
             store=self.store,
             generator=generator,
             critic=critic,
+            use_file_mode=True,  # 启用文件模式，代码会写入实际文件
             on_progress=lambda et, d: self._on_executor_progress(task_id, et, d),
         )
         self._executors[task_id] = executor
