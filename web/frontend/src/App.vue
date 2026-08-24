@@ -12,16 +12,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <a-config-provider
-    :theme="{
-      algorithm: themeStore.isDark
-        ? undefined
-        : undefined,
-    }"
-  >
+  <a-config-provider>
     <a-layout class="app-layout">
       <AppHeader />
-      <a-layout>
+      <a-layout class="body-layout">
         <AppSidebar />
         <a-layout-content class="main-content">
           <router-view />
@@ -34,11 +28,17 @@ onMounted(() => {
 <style scoped>
 .app-layout {
   min-height: 100vh;
+  background: var(--c-bg);
+}
+
+.body-layout {
+  background: var(--c-bg);
 }
 
 .main-content {
-  padding: 24px;
-  background: var(--bg-color, #f5f5f5);
+  padding: var(--sp-6);
+  background: var(--c-bg);
   overflow-y: auto;
+  min-height: calc(100vh - var(--header-h));
 }
 </style>

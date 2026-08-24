@@ -6,74 +6,92 @@ const themeStore = useThemeStore()
 </script>
 
 <template>
-  <a-layout-header class="app-header">
-    <div class="header-left">
-      <div class="logo">
-        <span class="logo-icon">⚡</span>
-        <span class="logo-text">Generator-Critic</span>
-      </div>
+  <a-layout-header class="header">
+    <div class="header-brand">
+      <div class="brand-mark">G</div>
+      <span class="brand-name">Generator-Critic</span>
+      <span class="brand-tag">Workbench</span>
     </div>
-    <div class="header-right">
-      <a-space>
-        <a-tag color="processing">多 Agent 工作台</a-tag>
-        <a-button
-          type="text"
-          @click="themeStore.toggle()"
-          class="theme-toggle"
-        >
-          <template #icon>
-            <BulbFilled v-if="themeStore.isDark" style="color: #fadb14" />
-            <BulbOutlined v-else />
-          </template>
-        </a-button>
-      </a-space>
+    <div class="header-actions">
+      <a-button
+        type="text"
+        size="small"
+        @click="themeStore.toggle()"
+        class="theme-btn"
+      >
+        <template #icon>
+          <BulbFilled v-if="themeStore.isDark" />
+          <BulbOutlined v-else />
+        </template>
+      </a-button>
     </div>
   </a-layout-header>
 </template>
 
 <style scoped>
-.app-header {
+.header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
-  background: linear-gradient(135deg, #17152e 0%, #2b2563 55%, #4f46e5 130%);
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.14);
+  height: var(--header-h);
+  padding: 0 var(--sp-6);
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  box-shadow: var(--shadow-xs);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
-.header-left {
+.header-brand {
   display: flex;
   align-items: center;
+  gap: var(--sp-3);
 }
 
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.logo-icon {
-  font-size: 24px;
-}
-
-.logo-text {
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--c-accent);
   color: #fff;
-  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: var(--text-sm);
+  letter-spacing: -0.5px;
+}
+
+.brand-name {
   font-weight: 600;
-  letter-spacing: 0.5px;
+  font-size: var(--text-md);
+  color: var(--c-text);
 }
 
-.header-right {
+.brand-tag {
+  font-size: var(--text-xs);
+  color: var(--c-text-3);
+  padding: 1px 6px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  line-height: 1.4;
+}
+
+.header-actions {
   display: flex;
   align-items: center;
+  gap: var(--sp-2);
 }
 
-.theme-toggle {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 18px;
+.theme-btn {
+  color: var(--c-text-3);
+  width: 32px;
+  height: 32px;
 }
 
-.theme-toggle:hover {
-  color: #fff;
+.theme-btn:hover {
+  color: var(--c-accent);
+  background: var(--c-accent-soft);
 }
 </style>

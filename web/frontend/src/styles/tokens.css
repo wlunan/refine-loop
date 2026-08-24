@@ -1,0 +1,186 @@
+/* ============================================
+   Design Tokens — Generator-Critic Workbench
+   Minimal · Neutral · Extensible
+   ============================================ */
+
+:root {
+  /* ---- Color Palette ---- */
+  --c-bg:        #f8f9fb;
+  --c-surface:   #ffffff;
+  --c-surface-2: #f3f4f6;
+  --c-surface-3: #ecedf0;
+
+  --c-text:      #111827;
+  --c-text-2:    #4b5563;
+  --c-text-3:    #9ca3af;
+  --c-border:    #e5e7eb;
+  --c-border-2:  #d1d5db;
+
+  /* Accent — indigo, restrained */
+  --c-accent:       #6366f1;
+  --c-accent-hover: #4f46e5;
+  --c-accent-soft:  rgba(99, 102, 241, 0.08);
+  --c-accent-muted: rgba(99, 102, 241, 0.15);
+
+  /* Semantic */
+  --c-success:     #22c55e;
+  --c-success-soft: rgba(34, 197, 94, 0.10);
+  --c-warning:     #f59e0b;
+  --c-warning-soft: rgba(245, 158, 11, 0.10);
+  --c-danger:      #ef4444;
+  --c-danger-soft:  rgba(239, 68, 68, 0.10);
+
+  /* ---- Spacing Scale (4px base) ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* ---- Typography ---- */
+  --font-sans:  "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+                "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono:  "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  --text-xs:  12px;
+  --text-sm:  13px;
+  --text-base: 14px;
+  --text-md:  15px;
+  --text-lg:  18px;
+  --text-xl:  24px;
+
+  --leading-tight: 1.35;
+  --leading:       1.55;
+
+  /* ---- Radius ---- */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+
+  /* ---- Shadows ---- */
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg:  0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+
+  /* ---- Layout ---- */
+  --sidebar-w: 220px;
+  --sidebar-collapsed-w: 56px;
+  --header-h: 52px;
+}
+
+/* ---- Dark Theme ---- */
+[data-theme="dark"] {
+  --c-bg:        #0f1117;
+  --c-surface:   #1a1d27;
+  --c-surface-2: #22252f;
+  --c-surface-3: #2a2d38;
+
+  --c-text:      #e5e7eb;
+  --c-text-2:    #9ca3af;
+  --c-text-3:    #6b7280;
+  --c-border:    #2d3039;
+  --c-border-2:  #3b3f4a;
+
+  --c-accent-soft:  rgba(99, 102, 241, 0.12);
+  --c-accent-muted: rgba(99, 102, 241, 0.20);
+
+  --c-success-soft: rgba(34, 197, 94, 0.15);
+  --c-warning-soft: rgba(245, 158, 11, 0.15);
+  --c-danger-soft:  rgba(239, 68, 68, 0.15);
+
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md:  0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+  --shadow-lg:  0 10px 15px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+}
+
+/* ---- Reset ---- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  color: var(--c-text);
+  background: var(--c-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- Ant Design Dark Overrides ---- */
+[data-theme="dark"] .ant-layout { background: var(--c-bg); }
+[data-theme="dark"] .ant-layout-sider { background: var(--c-surface) !important; }
+[data-theme="dark"] .ant-card {
+  background: var(--c-surface);
+  border-color: var(--c-border);
+}
+[data-theme="dark"] .ant-card-head {
+  border-bottom-color: var(--c-border);
+  color: var(--c-text);
+}
+[data-theme="dark"] .ant-card-body { color: var(--c-text); }
+[data-theme="dark"] .ant-menu { background: transparent; border-inline-end-color: var(--c-border); }
+[data-theme="dark"] .ant-menu-item { color: var(--c-text-2); }
+[data-theme="dark"] .ant-menu-item-selected { background: var(--c-accent-soft); color: var(--c-accent); }
+[data-theme="dark"] .ant-input,
+[data-theme="dark"] .ant-input-number,
+[data-theme="dark"] .ant-select-selector,
+[data-theme="dark"] .ant-input-affix-wrapper,
+[data-theme="dark"] .ant-input-textarea textarea {
+  background: var(--c-surface-2);
+  border-color: var(--c-border);
+  color: var(--c-text);
+}
+[data-theme="dark"] .ant-input::placeholder,
+[data-theme="dark"] .ant-input-number::placeholder,
+[data-theme="dark"] .ant-input-textarea textarea::placeholder { color: var(--c-text-3); }
+[data-theme="dark"] .ant-descriptions-item-label { color: var(--c-text-3); }
+[data-theme="dark"] .ant-descriptions-item-content { color: var(--c-text); }
+[data-theme="dark"] .ant-empty-description { color: var(--c-text-3); }
+[data-theme="dark"] .ant-timeline-item-content { color: var(--c-text); }
+[data-theme="dark"] .ant-list-item-meta-title { color: var(--c-text); }
+[data-theme="dark"] .ant-list-item-meta-description { color: var(--c-text-2); }
+[data-theme="dark"] .ant-progress-text { color: var(--c-text); }
+[data-theme="dark"] .ant-statistic-content { color: var(--c-text); }
+[data-theme="dark"] .ant-page-header-heading-title { color: var(--c-text); }
+[data-theme="dark"] .ant-page-header-heading-sub-title { color: var(--c-text-2); }
+[data-theme="dark"] .ant-modal-content { background: var(--c-surface); }
+[data-theme="dark"] .ant-modal-header { background: var(--c-surface); }
+[data-theme="dark"] .ant-modal-title { color: var(--c-text); }
+[data-theme="dark"] .ant-modal-close-x { color: var(--c-text-3); }
+[data-theme="dark"] .ant-dropdown-menu { background: var(--c-surface); border-color: var(--c-border); }
+[data-theme="dark"] .ant-dropdown-menu-item { color: var(--c-text); }
+[data-theme="dark"] .ant-dropdown-menu-item:hover { background: var(--c-surface-2); }
+[data-theme="dark"] .ant-select-dropdown { background: var(--c-surface); border-color: var(--c-border); }
+[data-theme="dark"] .ant-select-item { color: var(--c-text); }
+[data-theme="dark"] .ant-select-item-option-active { background: var(--c-surface-2); }
+[data-theme="dark"] .ant-select-item-option-selected { background: var(--c-accent-soft); }
+[data-theme="dark"] .ant-slider-rail { background: var(--c-surface-3); }
+[data-theme="dark"] .ant-slider-track { background: var(--c-accent); }
+[data-theme="dark"] .ant-slider-handle::after { border-color: var(--c-accent); }
+[data-theme="dark"] .ant-timeline-item-tail { border-inline-start-color: var(--c-border); }
+[data-theme="dark"] .ant-badge-status-text { color: var(--c-text); }
+[data-theme="dark"] .ant-alert { background: var(--c-surface-2); }
+[data-theme="dark"] .ant-alert-error { background: var(--c-danger-soft); }
+[data-theme="dark"] .ant-alert-message { color: var(--c-text); }
+[data-theme="dark"] .ant-alert-description { color: var(--c-text-2); }
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--c-border-2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--c-text-3); }
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--c-border-2); }
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: var(--c-text-3); }
+
+/* ---- Utility ---- */
+.mono { font-family: var(--font-mono); }
