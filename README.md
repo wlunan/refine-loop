@@ -50,7 +50,12 @@ generator-critic-agent/
 ├── requirements.txt                 # Python 依赖
 ├── .env.example                     # 环境变量示例
 ├── backend/                         # 后端（agent 核心 + FastAPI 服务 + 前端）
-│   ├── server.py                    # 统一 FastAPI Web 服务（工作台 SSE + 任务管理 API + 前端托管，单端口 8000）
+│   ├── server.py                    # FastAPI 应用入口（CORS、路由挂载、前端托管、主事件循环注入，单端口 8000）
+│   ├── routers/                     # 路由层（FastAPI APIRouter 分层）
+│   │   ├── __init__.py
+│   │   ├── common.py                # 路由共享工具（SSE 响应构造、文本截断）
+│   │   ├── workbench.py             # 工作台接口（/api/stream、/api/stream_files、/api/browse_dir、/api/stop）
+│   │   └── tasks.py                 # 任务管理接口（/api/tasks 系列 REST + SSE 事件流）
 │   ├── config/
 │   │   ├── __init__.py
 │   │   └── settings.py              # 配置管理（LLM、编排器参数、日志）
