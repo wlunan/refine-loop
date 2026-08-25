@@ -95,7 +95,7 @@
 | **LangGraph** (`StateGraph`) | 图状态机版工作流（可选） | `graph/workflow.py` |
 | **Pydantic** | 数据建模 + 结构化输出校验 | `models/schemas.py` |
 | **python-dotenv** | 环境变量管理 | `config/settings.py` |
-| **FastAPI + SSE** | 流式 Web 服务 | `web/server.py` |
+| **FastAPI + SSE** | 流式 Web 服务 | `backend/server.py` |
 | **pytest + Mock** | 离线单元测试 | `tests/` |
 
 ---
@@ -114,7 +114,7 @@
 | **Orchestrator** | 迭代循环 + 收敛判断 + 回调 | `src/orchestrator/orchestrator.py` | 🟡 |
 | **Prompt 模板** | 四领域系统提示词 + 消息模板 | `src/prompts/*.py` | 🟢 |
 | **LangGraph 工作流** | 图状态机版的同一套流程（对比学习） | `src/graph/workflow.py` | 🔴 |
-| **Web 服务** | 流式 SSE + 可视化界面 | `web/server.py` + `web/static/index.html` | 🟡 |
+| **Web 服务** | 流式 SSE + 可视化界面 | `backend/server.py` + `backend/frontend` | 🟡 |
 | **示例** | 不同场景的可运行入口 | `examples/*.py` | 🟢 |
 | **测试** | 用 Mock LLM 离线验证核心逻辑 | `tests/*.py` | 🟡 |
 
@@ -283,7 +283,7 @@ LLM 原始回复
 | 顺序 | 文件 | 重点 | 目标 |
 |------|------|------|------|
 | 13 | `src/graph/workflow.py` | 图状态机的节点/边/条件路由 | 对比命令式实现 |
-| 14 | `web/server.py` + `web/static/index.html` | SSE 流式推送 + 前端折叠交互 | 理解流式产品化 |
+| 14 | `backend/server.py` + `backend/frontend` | SSE 流式推送 + 前端折叠交互 | 理解流式产品化 |
 | 15 | `examples/from_draft_example.py` | 传入初始草稿的用法 | 理解"润色/review"场景 |
 
 > **验收标准**：能说出"命令式 Orchestrator 和 LangGraph 图版本各自适用什么场景"。
@@ -311,7 +311,7 @@ LLM 原始回复
 - `BaseAgent` 可注入 `llm`、`Orchestrator` 可注入 `generator`/`critic`。
 - **价值**：这是测试能完全离线跑、以及未来替换模型的根基。理解它，才能理解 `tests/` 为什么能 Mock。
 
-### 🟡 难点 4：流式输出的链路（`base.py` → `orchestrator.py` → `web/server.py`）
+### 🟡 难点 4：流式输出的链路（`base.py` → `orchestrator.py` → `backend/server.py`）
 
 - `invoke`（一次性）与 `stream`（逐块）的区别 → 回调把 token 传给上层 → SSE 推给浏览器。
 - **价值**：理解"打字机效果"背后的完整数据流。

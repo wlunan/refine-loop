@@ -6,7 +6,7 @@ LangGraph 版本使用示例
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 
 from config.settings import setup_logging
 from src.graph import GeneratorCriticGraph
