@@ -41,7 +41,11 @@ class LLMConfig:
     generator_temperature: float = 0.7
     # Critic 温度（较低以保证审查稳定性）
     critic_temperature: float = 0.1
-    # 最大 token 数
+    # Generator 输出最大 token 数（较大以支持项目/大文件输出）
+    generator_max_tokens: int = 8192
+    # Critic 输出最大 token 数（审查结论通常较短，调小以提速）
+    critic_max_tokens: int = 2000
+    # 兼容字段：旧配置/旧代码引用的统一 max_tokens（无实际用途，保留以免破坏）
     max_tokens: int = 4096
     # 超时时间（秒）
     request_timeout: int = 120
@@ -51,15 +55,15 @@ class LLMConfig:
 class OrchestratorConfig:
     """编排器配置"""
     # 默认最大迭代轮数
-    default_max_rounds: int = 5
+    default_max_rounds: int = 3
     # 收敛评分阈值
     convergence_score_threshold: int = 85
     # 连续无新反馈轮数阈值
     no_progress_rounds: int = 2
     # 单轮最大 token 预算
-    round_token_budget: int = 30000
+    round_token_budget: int = 300000
     # 总 token 预算
-    total_token_budget: int = 100000
+    total_token_budget: int = 2000000
 
 
 @dataclass

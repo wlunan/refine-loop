@@ -34,6 +34,7 @@ class BaseAgent(ABC):
         model: Optional[str] = None,
         temperature: float = 0.7,
         llm: Optional[BaseChatModel] = None,
+        max_tokens: Optional[int] = None,
     ):
         """
         初始化 Agent
@@ -44,6 +45,7 @@ class BaseAgent(ABC):
             model: 模型名称，为 None 时从配置读取
             temperature: 温度参数
             llm: 外部注入的 LLM 实例（用于测试或自定义）
+            max_tokens: 输出最大 token 数，为 None 时使用 config.llm.max_tokens
         """
         self.role = role
         self.system_prompt = system_prompt
@@ -60,7 +62,7 @@ class BaseAgent(ABC):
                 temperature=temperature,
                 api_key=config.llm.api_key,
                 base_url=config.llm.api_base,
-                max_tokens=config.llm.max_tokens,
+                max_tokens=max_tokens or config.llm.max_tokens,
                 timeout=config.llm.request_timeout,
             )
 

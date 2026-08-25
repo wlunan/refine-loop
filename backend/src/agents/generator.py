@@ -59,6 +59,7 @@ class GeneratorAgent(BaseAgent):
             model=model,
             temperature=temp,
             llm=llm,
+            max_tokens=config.llm.generator_max_tokens,
         )
 
     def _get_default_model(self) -> str:

@@ -58,6 +58,7 @@ class CriticAgent(BaseAgent):
             model=model,
             temperature=temp,
             llm=llm,
+            max_tokens=config.llm.critic_max_tokens,
         )
 
         # 初始化 Pydantic 解析器
