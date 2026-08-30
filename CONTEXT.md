@@ -41,6 +41,8 @@ backend/
     ├── prompts/              # 四领域提示词
     └── tools/                # filesystem（沙箱）/ verification（可验证）
 frontend/                     # Vue3 前端源码
+benchmark/                    # 评估框架（任务集 + 评测执行器 + 报告）
+tests/                        # 单元测试（Mock LLM 离线）
 ```
 
 ## 核心概念
@@ -52,8 +54,8 @@ frontend/                     # Vue3 前端源码
 
 ## 当前状态（2026-08-30）
 
-- 已实现：文本/文件迭代、收敛机制、成本控制（token 预算）、可验证工具集、代码自愈闭环、Web 前端、长任务管理、Mock LLM 离线测试
-- 下一步：评估框架/benchmark（量化迭代提升）、审查标准外置化、CLI 入口
+- 已实现：文本/文件迭代、收敛机制、成本控制（token 预算）、可验证工具集、代码自愈闭环、Web 前端、长任务管理、评估框架/benchmark、Mock LLM 离线测试
+- 下一步：审查标准外置化、CLI 入口
 
 ## 约定
 

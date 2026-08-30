@@ -8,6 +8,7 @@
 - **可验证工具集**（`src/tools/verification.py`）：`run_command` / `run_tests` / `run_lint` / `run_python`，带沙箱 cwd、超时控制与输出截断，让审查基于真实执行结果
 - **代码自愈闭环**（`src/orchestrator/self_healing.py`）：`SelfHealingOrchestrator` 实现「生成 → 验证 → 失败定位 → 修复 → 复跑」
 - 文件模式 Generator 支持 `enable_verification`，写完代码后可主动跑测试验证；文件模式 prompt 增加「先验证再交付」
+- **评估框架 / benchmark**（`benchmark/`）：对比「单次生成 vs 自愈闭环」的测试通过率与修复率，输出量化报告
 - 架构文档 `docs/ARCHITECTURE.md`、接口文档 `docs/API.md`、项目上下文 `CONTEXT.md`、决策记录 `docs/adr/`
 
 ### 修复

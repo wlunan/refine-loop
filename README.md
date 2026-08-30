@@ -113,6 +113,11 @@ generator-critic-agent/
 │   │   └── styles/                  # 设计 token 与全局样式
 │   ├── package.json                 # 前端依赖与脚本（dev / build / preview）
 │   └── vite.config.ts               # Vite 配置（构建产物输出至 backend/static/dist）
+├── benchmark/                       # 评估框架（量化迭代质量提升）
+│   ├── tasks.py                     # 测试集（代码任务 + ground truth 测试）
+│   ├── runner.py                    # 评测执行器（baseline vs 自愈闭环）
+│   ├── report.py                    # 报告生成（通过率 / 修复率）
+│   └── run_benchmark.py             # 入口
 ├── examples/
 │   ├── __init__.py
 │   ├── quick_start.py               # 快速开始示例
@@ -130,7 +135,8 @@ generator-critic-agent/
     ├── test_agents.py               # Agent 测试
     ├── test_prompts.py              # Prompt 模板测试
     ├── test_verification.py         # 可验证工具集测试
-    └── test_self_healing.py         # 代码自愈闭环测试
+    ├── test_self_healing.py         # 代码自愈闭环测试
+    └── test_benchmark.py            # 评估框架测试
 └── dsh-plugin-gc-review/            # DeepSeek Harness 插件（生成-批判迭代循环，独立 npm 包）
     ├── src/                         # TypeScript 插件源码（入口/循环/LLM 适配/收敛判定）
     ├── tests/                       # 冒烟测试（核心循环 + LLM 桥接）
@@ -236,6 +242,9 @@ python examples/task_example.py
 
 # 代码自愈闭环（生成→验证→失败修复→复跑，基于真实测试结果）
 python examples/self_healing_example.py
+
+# 运行评估框架（对比单次生成 vs 自愈闭环的测试通过率，需 API Key）
+python benchmark/run_benchmark.py
 ```
 
 运行成功后，终端会实时打印每一轮的 Generator 产出、Critic 审查评分、问题列表和最终结果摘要。
@@ -537,13 +546,13 @@ pytest tests/ --cov=src --cov-report=term-missing
 - **~~可验证工具集~~（已实现）**：`run_tests` / `run_lint` / `run_command` / `run_python` 验证工具 + 代码自愈闭环（`SelfHealingOrchestrator`）已落地，详见 `docs/ARCHITECTURE.md`
 - **审查标准外置化**：把各领域评审标准抽成可配置规范（YAML/JSON），Critic 逐条对照打分，用户可自定义领域标准
 - **CLI 入口**：`gc review <path>` 命令行工具，脱离 Web 直接集成到开发工作流 / CI
+- **~~评估框架~~（已实现）**：`benchmark/` 对比「单次生成 vs 自愈闭环」的测试通过率与修复率，输出量化报告
 
 ### 中期
 
 - **多 Critic 并行**：多个 Critic 从不同维度审查，取问题并集
 - **Critic 分级**：初筛用弱模型，通过后用强模型终审
 - **多模型路由**：Generator 用强模型，Critic 用弱模型，按任务难度动态选择
-- **评估框架**：量化「迭代前 vs 迭代后」的质量提升，让用户看到迭代价值
 - **按需人工介入**：收敛不了 / 置信度低 / 高风险操作时暂停并请求人工确认
 
 ### 长期
