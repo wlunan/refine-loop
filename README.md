@@ -51,7 +51,7 @@ generator-critic-agent/
 ├── README.md                        # 项目说明
 ├── requirements.txt                 # Python 依赖
 ├── .env.example                     # 环境变量示例
-├── backend/                         # 后端（agent 核心 + FastAPI 服务 + 前端）
+├── backend/                         # 后端（agent 核心 + FastAPI 服务）
 │   ├── server.py                    # FastAPI 应用入口（CORS、路由挂载、前端托管、主事件循环注入，单端口 8000）
 │   ├── routers/                     # 路由层（FastAPI APIRouter 分层）
 │   │   ├── __init__.py
@@ -101,20 +101,18 @@ generator-critic-agent/
 │   │   └── store/
 │   │       ├── __init__.py
 │   │       └── state_store.py       # 状态持久化存储（JSON 文件，支持断点恢复）
-│   ├── frontend/                    # Vue 3 + TypeScript 前端源码（Vite 构建，当前前端）
-│   │   ├── src/
-│   │   │   ├── views/               # 工作台 / 任务列表 / 任务详情三个页面
-│   │   │   ├── components/          # 布局、子任务列表、进度、评分趋势图等组件
-│   │   │   ├── api/                 # 后端 API 封装
-│   │   │   ├── stores/              # Pinia 状态管理
-│   │   │   ├── router/              # 路由（/、/tasks、/tasks/:id）
-│   │   │   └── styles/              # 设计 token 与全局样式
-│   │   ├── package.json             # 前端依赖与脚本（dev / build / preview）
-│   │   └── vite.config.ts           # Vite 配置（构建产物输出至 static/dist）
 │   └── static/
-│       ├── dist/                    # 前端构建产物（npm run build 生成，已 gitignore）
-│       ├── index.html               # （旧版，已弃用）Generator-Critic 工作台
-│       └── tasks.html               # （旧版，已弃用）任务管理界面
+│       └── dist/                    # 前端构建产物（npm run build 生成，已 gitignore）
+├── frontend/                        # Vue 3 + TypeScript 前端源码（Vite 构建）
+│   ├── src/
+│   │   ├── views/                   # 工作台 / 任务列表 / 任务详情三个页面
+│   │   ├── components/              # 布局、子任务列表、进度、评分趋势图等组件
+│   │   ├── api/                     # 后端 API 封装
+│   │   ├── stores/                  # Pinia 状态管理
+│   │   ├── router/                  # 路由（/、/tasks、/tasks/:id）
+│   │   └── styles/                  # 设计 token 与全局样式
+│   ├── package.json                 # 前端依赖与脚本（dev / build / preview）
+│   └── vite.config.ts               # Vite 配置（构建产物输出至 backend/static/dist）
 ├── examples/
 │   ├── __init__.py
 │   ├── quick_start.py               # 快速开始示例
@@ -266,7 +264,7 @@ npm install
 前端构建成静态文件，由统一后端托管，适合日常使用：
 
 ```bash
-# 1. 构建前端（产物输出到 web/static/dist）
+# 1. 构建前端（产物输出到 backend/static/dist）
 cd frontend
 npm run build
 
@@ -300,7 +298,7 @@ npm run dev
 | 任务列表 `/tasks` | http://127.0.0.1:8000/tasks | http://127.0.0.1:5173/tasks |
 | 任务详情 `/tasks/:id` | 从任务列表进入 | 从任务列表进入 |
 
-> 说明：统一后端在检测到 `static/dist` 构建产物存在时以 SPA 方式托管前端；否则回退到旧版 `static/tasks.html`。旧版静态页面（`index.html` / `tasks.html`）已被 Vue 前端取代，仅作兼容保留。
+> 说明：统一后端以 SPA 方式托管 `backend/static/dist` 下的前端构建产物；未执行 `npm run build` 时访问根路径会返回 404 提示。
 
 ### 7. 运行测试
 
@@ -353,7 +351,7 @@ pytest tests/ --cov=src --cov-report=term-missing
 1. 确认终端显示 `Uvicorn running on http://127.0.0.1:8000`
 2. 检查端口 8000 是否被占用，可在 `backend/server.py` 末尾修改端口号
 3. 尝试直接访问接口验证后端是否正常：http://127.0.0.1:8000/api/stream?task=test&domain=general
-4. 若使用 Vue 前端，确认已执行 `npm run build` 生成 `static/dist` 产物，或通过 `npm run dev` 访问 5173 端口
+4. 若使用 Vue 前端，确认已执行 `npm run build` 生成 `backend/static/dist` 产物，或通过 `npm run dev` 访问 5173 端口
 
 ## 基本用法
 

@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -73,11 +73,14 @@ DIST_DIR = os.path.join(STATIC_DIR, "dist")
 
 @app.get("/")
 async def index():
-    """返回前端页面（优先 Vue 构建产物，回退旧版页面）"""
+    """返回前端页面（Vue 构建产物，需先执行 npm run build）"""
     spa_index = os.path.join(DIST_DIR, "index.html")
     if os.path.isfile(spa_index):
         return FileResponse(spa_index)
-    return FileResponse(os.path.join(STATIC_DIR, "tasks.html"))
+    raise HTTPException(
+        status_code=404,
+        detail="前端尚未构建，请先在 frontend 目录执行 npm run build",
+    )
 
 
 # 挂载静态文件（Vue 构建产物）
@@ -100,8 +103,7 @@ async def serve_spa(full_path: str):
     index_path = os.path.join(DIST_DIR, "index.html")
     if os.path.isfile(index_path):
         return FileResponse(index_path)
-    # 如果没有构建产物，返回旧版 HTML
-    return FileResponse(os.path.join(STATIC_DIR, "tasks.html"))
+    raise HTTPException(status_code=404, detail="页面不存在")
 
 
 # ------------------------------------------------------------------
