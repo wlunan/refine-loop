@@ -93,11 +93,11 @@ class TestOrchestrator:
     def test_converge_by_max_rounds(self):
         """测试达到最大轮数终止"""
         generator = create_mock_generator(["v1", "v2", "v3"])
-        # 始终不达标
+        # 始终不达标，且每轮问题不同（避免触发「无新反馈」收敛）
         critic = create_mock_critic([
-            CritiqueResult(score=50, issues=["问题"], acceptable=False),
-            CritiqueResult(score=55, issues=["问题"], acceptable=False),
-            CritiqueResult(score=52, issues=["问题"], acceptable=False),
+            CritiqueResult(score=50, issues=["问题1"], acceptable=False),
+            CritiqueResult(score=55, issues=["问题2"], acceptable=False),
+            CritiqueResult(score=52, issues=["问题3"], acceptable=False),
         ])
 
         orchestrator = Orchestrator(
@@ -127,7 +127,6 @@ class TestOrchestrator:
 
         orchestrator = Orchestrator(
             max_rounds=5,
-            no_progress_rounds=2,
             generator=generator,
             critic=critic,
         )

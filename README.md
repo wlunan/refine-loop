@@ -23,6 +23,8 @@
 | **TaskManager** | 长时间运行任务的全生命周期管理（创建→分解→执行→暂停/恢复/取消） |
 | **ToolAgent** | 混合模式工具调用执行器，支持原生 Function Calling 和 JSON 文本协议降级 |
 | **FileWorkspace** | 文件安全沙箱，限制 Agent 的所有文件操作在指定目录内 |
+| **可验证工具集** | `run_tests` / `run_lint` / `run_command` / `run_python`，让审查基于真实执行结果而非纯文本 |
+| **SelfHealingOrchestrator** | 代码自愈闭环：生成 → 验证 → 失败定位 → 修复 → 复跑 |
 
 ### 收敛机制
 
@@ -74,7 +76,8 @@ generator-critic-agent/
 │   │   │   └── tool_agent.py        # 混合模式工具调用执行器
 │   │   ├── orchestrator/
 │   │   │   ├── __init__.py
-│   │   │   └── orchestrator.py      # 编排器（命令式实现，支持 stop 中断）
+│   │   │   ├── orchestrator.py      # 编排器（命令式实现，支持 stop 中断）
+│   │   │   └── self_healing.py      # 代码自愈闭环（生成→验证→失败定位→修复→复跑）
 │   │   ├── graph/
 │   │   │   ├── __init__.py
 │   │   │   └── workflow.py          # LangGraph 工作流（图状态机实现）
@@ -84,7 +87,8 @@ generator-critic-agent/
 │   │   │   └── critic_prompt.py     # Critic Prompt 模板（四领域）
 │   │   ├── tools/
 │   │   │   ├── __init__.py
-│   │   │   └── filesystem.py        # 文件系统工具集（安全沙箱 + LangChain StructuredTool）
+│   │   │   ├── filesystem.py        # 文件系统工具集（安全沙箱 + LangChain StructuredTool）
+│   │   │   └── verification.py      # 可验证工具集（run_command/run_tests/run_lint，真实执行结果）
 │   │   ├── planner/
 │   │   │   ├── __init__.py
 │   │   │   └── task_planner.py      # 任务分解器（LLM 驱动的需求分析与子任务规划）
@@ -119,13 +123,16 @@ generator-critic-agent/
 │   ├── writing_example.py           # 文案写作示例
 │   ├── from_draft_example.py        # 从初始草稿优化示例
 │   ├── langgraph_example.py         # LangGraph 版本示例
-│   └── task_example.py              # 长时间运行任务示例
+│   ├── task_example.py              # 长时间运行任务示例
+│   └── self_healing_example.py      # 代码自愈闭环示例（生成→验证→修复→复跑）
 └── tests/
     ├── __init__.py
     ├── test_schemas.py              # 数据模型测试
     ├── test_orchestrator.py         # 编排器测试（含 Mock LLM，验证三种收敛条件）
     ├── test_agents.py               # Agent 测试
-    └── test_prompts.py              # Prompt 模板测试
+    ├── test_prompts.py              # Prompt 模板测试
+    ├── test_verification.py         # 可验证工具集测试
+    └── test_self_healing.py         # 代码自愈闭环测试
 └── dsh-plugin-gc-review/            # DeepSeek Harness 插件（生成-批判迭代循环，独立 npm 包）
     ├── src/                         # TypeScript 插件源码（入口/循环/LLM 适配/收敛判定）
     ├── tests/                       # 冒烟测试（核心循环 + LLM 桥接）
@@ -228,13 +235,16 @@ python examples/langgraph_example.py
 
 # 长时间运行任务（任务分解 + 子任务异步执行）
 python examples/task_example.py
+
+# 代码自愈闭环（生成→验证→失败修复→复跑，基于真实测试结果）
+python examples/self_healing_example.py
 ```
 
 运行成功后，终端会实时打印每一轮的 Generator 产出、Critic 审查评分、问题列表和最终结果摘要。
 
 ### 6. 启动 Web 服务（可选）
 
-前端为 Vue 3 + TypeScript 应用（`web/frontend`），使用 Ant Design Vue + Pinia + ECharts 构建，提供三个页面：
+前端为 Vue 3 + TypeScript 应用（`frontend`），使用 Ant Design Vue + Pinia + ECharts 构建，提供三个页面：
 
 - **工作台 `/`**：文本生成-批判迭代，SSE 实时流式显示 Generator 产出与 Critic 审查，评分趋势折线图（含收敛阈值参考线）、每轮问题/建议/总结、最终产出
 - **任务列表 `/tasks`**：长时间运行任务管理，创建任务、按状态筛选、启动/暂停/恢复/取消
@@ -247,7 +257,7 @@ python examples/task_example.py
 python -m pip install -r requirements.txt
 
 # 前端依赖
-cd backend/frontend
+cd frontend
 npm install
 ```
 
@@ -257,12 +267,12 @@ npm install
 
 ```bash
 # 1. 构建前端（产物输出到 web/static/dist）
-cd web/frontend
+cd frontend
 npm run build
 
 # 2. 启动统一后端服务（单端口 8000，提供工作台 SSE + 任务管理 API + 前端托管）
-cd ../..
-python web/server.py
+cd ..
+python backend/server.py
 ```
 
 访问 **http://127.0.0.1:8000** 即可使用完整界面。
@@ -273,10 +283,10 @@ python web/server.py
 
 ```bash
 # 终端 A：统一后端（8000）
-python web/server.py
+python backend/server.py
 
 # 终端 B：Vite 前端开发服务器（5173，/api 已代理到 8000）
-cd web/frontend
+cd frontend
 npm run dev
 ```
 
@@ -526,7 +536,7 @@ pytest tests/ --cov=src --cov-report=term-missing
 
 ### 短期（下一步开发重点）
 
-- **可验证工具集**：为 Agent 提供 `run_tests` / `run_lint` / `run_command` 等验证工具，让 Critic 基于真实执行结果（而非纯文本）审查，实现「代码自愈」闭环——失败日志定位 → 修复 → 复跑通过
+- **~~可验证工具集~~（已实现）**：`run_tests` / `run_lint` / `run_command` / `run_python` 验证工具 + 代码自愈闭环（`SelfHealingOrchestrator`）已落地，详见 `docs/ARCHITECTURE.md`
 - **审查标准外置化**：把各领域评审标准抽成可配置规范（YAML/JSON），Critic 逐条对照打分，用户可自定义领域标准
 - **CLI 入口**：`gc review <path>` 命令行工具，脱离 Web 直接集成到开发工作流 / CI
 

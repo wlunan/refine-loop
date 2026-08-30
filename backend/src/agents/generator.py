@@ -21,6 +21,7 @@ from src.prompts.generator_prompt import (
     build_generator_user_message,
 )
 from src.tools.filesystem import FileWorkspace, build_file_tools
+from src.tools.verification import CommandRunner, build_verification_tools
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,7 @@ class GeneratorAgent(BaseAgent):
         workspace_dir: str,
         on_event: Optional[Callable[[dict], None]] = None,
         max_steps: int = 20,
+        enable_verification: bool = True,
     ) -> str:
         """
         在指定工作区目录内操作文件，完成任务（文件级生成）
@@ -193,6 +195,8 @@ class GeneratorAgent(BaseAgent):
         """
         workspace = FileWorkspace(workspace_dir)
         tools = build_file_tools(workspace)
+        if enable_verification:
+            tools = tools + build_verification_tools(CommandRunner(workspace_dir))
         agent = ToolAgent(
             llm=self.llm,
             tools=tools,
