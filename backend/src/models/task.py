@@ -134,7 +134,7 @@ class TaskPlan(BaseModel):
 
 
 class Checkpoint(BaseModel):
-    """检查点 - 用于断点恢复"""
+    """检查点 - 用于断点恢复与每轮记录展示"""
     task_id: str = Field(description="任务 ID")
     subtask_id: str = Field(description="子任务 ID")
     round: int = Field(ge=0, description="当前迭代轮次")
@@ -144,6 +144,28 @@ class Checkpoint(BaseModel):
         description="文件变更记录"
     )
     tokens_used: int = Field(default=0, ge=0, description="已消耗 token 数")
+    score: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="本轮 Critic 评分"
+    )
+    acceptable: Optional[bool] = Field(
+        default=None,
+        description="本轮是否可接受"
+    )
+    issues: List[str] = Field(
+        default_factory=list,
+        description="本轮审查问题"
+    )
+    suggestions: List[str] = Field(
+        default_factory=list,
+        description="本轮审查建议"
+    )
+    summary: Optional[str] = Field(
+        default=None,
+        description="本轮审查总结"
+    )
     created_at: datetime = Field(default_factory=datetime.now)
 
 

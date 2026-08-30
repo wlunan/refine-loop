@@ -70,4 +70,12 @@ export const taskApi = {
     if (!response.ok) throw new Error('获取进度失败')
     return response.json()
   },
+
+  async getSubtaskRounds(taskId: string, subtaskId: string) {
+    const response = await fetch(
+      `${API_BASE}/tasks/${taskId}/subtasks/${subtaskId}/rounds`
+    )
+    if (!response.ok) throw new Error('获取子任务迭代记录失败')
+    return response.json()
+  },
 }

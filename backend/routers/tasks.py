@@ -246,6 +246,47 @@ async def get_progress(task_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/{task_id}/subtasks/{subtask_id}/rounds")
+async def get_subtask_rounds(task_id: str, subtask_id: str):
+    """
+    获取子任务每一轮迭代的详细记录（生成草稿 + Critic 审查）
+
+    数据来源为执行过程中保存的 Checkpoint。
+    """
+    # 验证任务存在
+    try:
+        task_manager.get_task(task_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    # 从存储读取该子任务的检查点（每轮一条）
+    try:
+        checkpoints = task_manager.store.list_checkpoints(
+            task_id=task_id,
+            subtask_id=subtask_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"读取迭代记录失败: {e}")
+
+    # 按轮次排序
+    checkpoints.sort(key=lambda cp: cp.round)
+
+    return [
+        {
+            "round": cp.round,
+            "draft": cp.draft,
+            "score": cp.score,
+            "acceptable": cp.acceptable,
+            "issues": cp.issues,
+            "suggestions": cp.suggestions,
+            "summary": cp.summary,
+            "tokens_used": cp.tokens_used,
+            "created_at": cp.created_at.isoformat(),
+        }
+        for cp in checkpoints
+    ]
+
+
 @router.get("/{task_id}/events")
 async def task_events(task_id: str, request: Request):
     """

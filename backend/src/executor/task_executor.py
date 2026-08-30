@@ -183,12 +183,16 @@ class TaskExecutor:
                 result=result.final_output,
                 score=result.state.critique.score if result.state.critique else 0,
             )
+
+            # 记录本次执行消耗的 token（每次执行新建 Orchestrator，token 统计独立）
+            tokens_used = result.state.total_tokens
             
-            # 发送完成事件
+            # 发送完成事件（附带 token 消耗）
             self._emit_progress("subtask_completed", {
                 "subtask_id": subtask.id,
                 "score": subtask.score,
                 "iterations": subtask.iterations,
+                "tokens_used": tokens_used,
             })
             
             logger.info(
@@ -228,13 +232,18 @@ class TaskExecutor:
             "draft_preview": draft[:200] + "..." if len(draft) > 200 else draft,
         })
         
-        # 保存检查点
+        # 保存检查点（含本轮审查信息，供前端展示每轮内容）
         if self.store:
             checkpoint = Checkpoint(
                 task_id=task_id,
                 subtask_id=subtask_id,
                 round=round_num,
                 draft=draft,
+                score=critique.score if critique else None,
+                acceptable=critique.acceptable if critique else None,
+                issues=list(critique.issues) if critique else [],
+                suggestions=list(critique.suggestions) if critique else [],
+                summary=critique.summary if critique else None,
             )
             try:
                 self.store.save_checkpoint(checkpoint)

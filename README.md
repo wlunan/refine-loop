@@ -126,6 +126,10 @@ generator-critic-agent/
     ├── test_orchestrator.py         # 编排器测试（含 Mock LLM，验证三种收敛条件）
     ├── test_agents.py               # Agent 测试
     └── test_prompts.py              # Prompt 模板测试
+└── dsh-plugin-gc-review/            # DeepSeek Harness 插件（生成-批判迭代循环，独立 npm 包）
+    ├── src/                         # TypeScript 插件源码（入口/循环/LLM 适配/收敛判定）
+    ├── tests/                       # 冒烟测试（核心循环 + LLM 桥接）
+    └── examples/cordis.yml          # dsh 装配示例
 ```
 
 ## 环境要求
