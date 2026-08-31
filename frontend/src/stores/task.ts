@@ -29,6 +29,18 @@ export interface Task {
   subtasks: SubTask[]
 }
 
+/** 任务列表接口返回的是摘要，详情字段仅在 GET /api/tasks/{id} 中提供。 */
+export interface TaskSummary {
+  id: string
+  title: string
+  status: string
+  progress_percent: number
+  subtask_count: number
+  completed_subtasks: number
+  created_at: string
+  error: string | null
+}
+
 export interface TaskProgress {
   task_id: string
   status: string
@@ -41,7 +53,7 @@ export interface TaskProgress {
 }
 
 export const useTaskStore = defineStore('task', () => {
-  const tasks = ref<Task[]>([])
+  const tasks = ref<TaskSummary[]>([])
   const currentTask = ref<Task | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -134,7 +146,6 @@ export const useTaskStore = defineStore('task', () => {
     if (index !== -1) {
       tasks.value[index].progress_percent = progress.progress_percent
       tasks.value[index].status = progress.status
-      tasks.value[index].total_tokens = progress.total_tokens
     }
     if (currentTask.value?.id === progress.task_id) {
       currentTask.value.progress_percent = progress.progress_percent
