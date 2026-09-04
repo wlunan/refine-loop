@@ -1,6 +1,8 @@
-# Generator-Critic 多 Agent 系统
+# 智炼回路（RefineLoop）
 
-一个基于**生成-批判迭代模式**的多智能体协作框架，核心目标是让 AI 产出**自动打磨到可接受标准**，减少人工反复喂提示词的负担。
+> 可验证的生成-批判闭环优化系统
+
+智炼回路是一个基于**生成-批判迭代模式**的多智能体协作系统，核心目标是让 AI 产出自动打磨到可接受标准，减少人工反复补充提示词的负担。
 
 通过 Generator（生成者）和 Critic（批判者）两个 Agent 的对话迭代，不断优化产出质量，直到满足收敛条件。Critic 代替了传统「AI 输出 → 人肉审查 → 再喂提示词」循环中的人工审查环节，支持文本、文件操作、长时间运行任务等多种模式。
 
@@ -47,7 +49,7 @@
 ## 项目结构
 
 ```
-generator-critic-agent/
+refine-loop-agent/
 ├── README.md                        # 项目说明
 ├── requirements.txt                 # Python 依赖
 ├── .env.example                     # 环境变量示例
@@ -155,7 +157,7 @@ generator-critic-agent/
 
 ```bash
 git clone <repository-url>
-cd generator-critic-agent
+cd refine-loop-agent
 ```
 
 ### 2. 安装依赖
@@ -290,6 +292,7 @@ python backend/server.py
 
 ```bash
 # 终端 A：统一后端（8000）
+conda activate agentchat
 python backend/server.py
 
 # 终端 B：Vite 前端开发服务器（5173，/api 已代理到 8000）

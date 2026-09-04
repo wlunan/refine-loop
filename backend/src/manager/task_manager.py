@@ -23,9 +23,11 @@ from src.models.task import (
     TaskProgress,
     TaskStatus,
 )
+from src.models.run import RunConfig
 from src.planner.task_planner import TaskPlanner
 from src.store.state_store import StateStore
 from src.tools.filesystem import FileWorkspace
+from src.tools.git_workspace import GitWorkspace
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,8 @@ class TaskManager:
         self._executors: Dict[str, TaskExecutor] = {}
         # 任务锁 {task_id: threading.Lock}
         self._task_locks: Dict[str, threading.Lock] = {}
+
+        self._recover_interrupted_tasks()
         
         logger.info("TaskManager 初始化完成")
     
@@ -74,6 +78,7 @@ class TaskManager:
         requirement: str,
         workspace_dir: str,
         domain: str = "code",
+        run_config: Optional[RunConfig] = None,
         llm=None,
     ) -> Task:
         """
@@ -98,6 +103,7 @@ class TaskManager:
             description=requirement,
             workspace_dir=workspace_dir,
             domain=domain,
+            run_config=run_config,
             status=TaskStatus.PENDING,
         )
         
@@ -139,7 +145,7 @@ class TaskManager:
         
         try:
             # 创建工作区
-            workspace = FileWorkspace(task.workspace_dir)
+            workspace = FileWorkspace(self._ensure_execution_workspace(task))
             
             # 创建分解器
             planner = TaskPlanner(
@@ -192,6 +198,10 @@ class TaskManager:
             critic: 自定义 Critic
         """
         task = self._load_task(task_id)
+
+        # 所有代码任务均先进入隔离 worktree，再规划和执行。
+        self._ensure_execution_workspace(task)
+        task = self._load_task(task_id)
         
         # 如果尚未分解，先执行分解
         if task.plan is None:
@@ -207,12 +217,13 @@ class TaskManager:
         self.store.save_task(task)
         
         # 创建执行器（默认使用文件模式，直接操作工作区文件）
-        workspace = FileWorkspace(task.workspace_dir)
+        workspace = FileWorkspace(self._ensure_execution_workspace(task))
         executor = TaskExecutor(
             workspace=workspace,
             store=self.store,
             generator=generator,
             critic=critic,
+            run_config=task.run_config,
             use_file_mode=True,  # 启用文件模式，代码会写入实际文件
             on_progress=lambda et, d: self._on_executor_progress(task_id, et, d),
         )
@@ -254,6 +265,13 @@ class TaskManager:
         
         # 更新状态
         task.status = TaskStatus.PAUSED
+        if task.current_subtask:
+            # The current orchestrator is stopped cooperatively. Re-run this
+            # subtask from its persisted worktree on resume instead of marking
+            # a partial generation as completed.
+            task.current_subtask.status = TaskStatus.PENDING
+            task.current_subtask.started_at = None
+        task.current_subtask_id = None
         self.store.save_task(task)
         
         # 发送事件
@@ -286,7 +304,10 @@ class TaskManager:
             task_id: 任务 ID
         """
         task = self._load_task(task_id)
-        
+        if task.status == TaskStatus.AWAITING_APPROVAL:
+            self.discard_changeset(task_id)
+            return
+
         if task.is_finished:
             raise ValueError(f"任务已结束: {task.status}")
         
@@ -299,13 +320,41 @@ class TaskManager:
         task.completed_at = datetime.now()
         self.store.save_task(task)
         
-        # 清理
-        self._cleanup_task(task_id)
-        
         # 发送事件
         self._emit_event("task_cancelled", {"task_id": task_id})
         
         logger.info(f"任务已取消: {task_id}")
+
+    def approve_changeset(self, task_id: str) -> Task:
+        """应用已审阅的 patch，并将任务标记为完成。"""
+        task = self._load_task(task_id)
+        if task.status != TaskStatus.AWAITING_APPROVAL or not task.changeset:
+            raise ValueError("任务当前没有可批准的变更集")
+        GitWorkspace.apply(task.changeset)
+        GitWorkspace.discard(task.changeset.source_workspace, task.changeset.worktree_path)
+        task.changeset.status = "applied"
+        task.changeset.decided_at = datetime.now()
+        task.status = TaskStatus.COMPLETED
+        task.completed_at = datetime.now()
+        self.store.save_task(task)
+        self._emit_event("changeset_applied", {"task_id": task_id})
+        self._emit_event("task_completed", {"task_id": task_id, "status": task.status.value})
+        return task
+
+    def discard_changeset(self, task_id: str) -> Task:
+        """丢弃隔离 worktree；原始工作区保持未修改。"""
+        task = self._load_task(task_id)
+        if task.status != TaskStatus.AWAITING_APPROVAL or not task.changeset:
+            raise ValueError("任务当前没有可丢弃的变更集")
+        GitWorkspace.discard(task.changeset.source_workspace, task.changeset.worktree_path)
+        task.changeset.status = "discarded"
+        task.changeset.decided_at = datetime.now()
+        task.status = TaskStatus.CANCELLED
+        task.completed_at = datetime.now()
+        self.store.save_task(task)
+        self._emit_event("changeset_discarded", {"task_id": task_id})
+        self._emit_event("task_cancelled", {"task_id": task_id, "status": task.status.value})
+        return task
     
     # ------------------------------------------------------------------
     # 查询接口
@@ -369,13 +418,21 @@ class TaskManager:
         
         try:
             # 创建上下文
-            workspace = FileWorkspace(task.workspace_dir)
-            context = TaskContext(workspace=workspace)
+            workspace = FileWorkspace(self._ensure_execution_workspace(task))
+            context = TaskContext(
+                workspace=workspace,
+                completed_results={
+                    subtask.id: subtask.result or ""
+                    for subtask in (task.plan.subtasks if task.plan else [])
+                    if subtask.status == TaskStatus.COMPLETED
+                },
+            )
             
             # 按依赖顺序执行子任务
             while True:
+                task = self._load_task(task_id)
                 # 检查是否被取消
-                if task.status == TaskStatus.CANCELLED:
+                if task.status != TaskStatus.RUNNING:
                     break
                 
                 # 获取可执行的子任务
@@ -405,6 +462,14 @@ class TaskManager:
                     context=context,
                     task_id=task_id,
                 )
+
+                # Pause/cancel may happen while an LLM call is in progress.
+                # Reload before persisting so the worker never overwrites a
+                # user-requested terminal state with its stale in-memory copy.
+                latest_task = self._load_task(task_id)
+                if latest_task.status != TaskStatus.RUNNING:
+                    task = latest_task
+                    break
                 
                 # 更新子任务状态
                 for i, st in enumerate(task.plan.subtasks):
@@ -428,24 +493,49 @@ class TaskManager:
             
             # 检查最终状态
             if task.status == TaskStatus.RUNNING:
-                task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.now()
+                changeset = GitWorkspace.collect(
+                    task.workspace_dir,
+                    self._ensure_execution_workspace(task),
+                )
+                task.changeset = changeset
+                if changeset.files:
+                    task.status = TaskStatus.AWAITING_APPROVAL
+                else:
+                    task.status = TaskStatus.COMPLETED
+                    task.completed_at = datetime.now()
+                self.store.save_task(task)
             
         except Exception as e:
             logger.error(f"任务执行异常: {task_id}, {e}")
-            task.status = TaskStatus.FAILED
-            task.error = str(e)
+            latest_task = self._load_task(task_id)
+            if latest_task.status in (TaskStatus.PAUSED, TaskStatus.CANCELLED):
+                task = latest_task
+            else:
+                task.status = TaskStatus.FAILED
+                task.error = str(e)
         
         finally:
+            task = self._load_task(task_id)
+            # A cancelled task must not leave an orphaned worktree behind.
+            if task.status == TaskStatus.CANCELLED and task.execution_workspace_dir:
+                GitWorkspace.discard(task.workspace_dir, task.execution_workspace_dir)
+                task.execution_workspace_dir = None
+
             # 保存最终状态
             self.store.save_task(task)
             
             # 发送完成事件
-            self._emit_event("task_completed" if task.status == TaskStatus.COMPLETED else "task_failed", {
-                "task_id": task_id,
-                "status": task.status.value,
-                "error": task.error,
-            })
+            event_type = {
+                TaskStatus.COMPLETED: "task_completed",
+                TaskStatus.AWAITING_APPROVAL: "task_awaiting_approval",
+                TaskStatus.PAUSED: "task_paused",
+            }.get(task.status, "task_failed")
+            if task.status != TaskStatus.CANCELLED:
+                self._emit_event(event_type, {
+                    "task_id": task_id,
+                    "status": task.status.value,
+                    "error": task.error,
+                })
             
             # 清理
             self._cleanup_task(task_id)
@@ -456,6 +546,41 @@ class TaskManager:
         if task is None:
             raise ValueError(f"任务不存在: {task_id}")
         return task
+
+    def _recover_interrupted_tasks(self) -> None:
+        """Make persisted work safe to resume after a backend restart.
+
+        A Python thread cannot survive process restart. Any in-flight task is
+        therefore converted to a resumable boundary state before the API
+        accepts new requests; completed subtasks and the isolated worktree stay
+        intact, while the interrupted subtask is retried on resume.
+        """
+        for task in self.store.list_tasks(limit=10_000):
+            changed = False
+            if task.status == TaskStatus.RUNNING:
+                task.status = TaskStatus.PAUSED
+                changed = True
+            elif task.status == TaskStatus.PLANNING:
+                task.status = TaskStatus.PENDING
+                changed = True
+
+            if task.current_subtask and task.current_subtask.status == TaskStatus.RUNNING:
+                task.current_subtask.status = TaskStatus.PENDING
+                task.current_subtask.started_at = None
+                changed = True
+            if changed:
+                task.current_subtask_id = None
+                self.store.save_task(task)
+                logger.info(f"已恢复中断任务为可续跑状态: {task.id}")
+
+    def _ensure_execution_workspace(self, task: Task) -> str:
+        """返回任务的隔离 worktree，首次使用时创建并持久化路径。"""
+        if task.execution_workspace_dir:
+            return task.execution_workspace_dir
+        workspace = GitWorkspace(task.id, task.workspace_dir)
+        task.execution_workspace_dir = workspace.create()
+        self.store.save_task(task)
+        return task.execution_workspace_dir
     
     def _cleanup_task(self, task_id: str) -> None:
         """清理任务资源"""
@@ -504,6 +629,8 @@ class TaskManager:
             return "执行中..."
         elif task.status == TaskStatus.PAUSED:
             return "已暂停"
+        elif task.status == TaskStatus.AWAITING_APPROVAL:
+            return "验证完成，等待审阅并确认变更"
         elif task.status == TaskStatus.COMPLETED:
             return "已完成"
         elif task.status == TaskStatus.FAILED:

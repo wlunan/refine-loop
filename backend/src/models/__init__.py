@@ -6,6 +6,14 @@ from .schemas import (
     IterationRecord,
     AgentState,
 )
+from .run import (
+    RunConfig,
+    VerificationProfile,
+    VerificationResult,
+    VerificationStep,
+    VerificationSummary,
+)
+from .changeset import ChangeFile, ChangeSet
 
 __all__ = [
     "AgentRole",
@@ -13,4 +21,11 @@ __all__ = [
     "CritiqueResult",
     "IterationRecord",
     "AgentState",
+    "RunConfig",
+    "VerificationProfile",
+    "VerificationResult",
+    "VerificationStep",
+    "VerificationSummary",
+    "ChangeFile",
+    "ChangeSet",
 ]

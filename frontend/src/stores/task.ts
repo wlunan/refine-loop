@@ -21,6 +21,12 @@ export interface Task {
   progress_percent: number
   workspace_dir: string
   domain: string
+  run_config: { verification_profile: string; max_rounds: number; score_threshold: number } | null
+  changeset: {
+    diff: string
+    files: Array<{ path: string; operation: string }>
+    status: string
+  } | null
   error: string | null
   total_tokens: number
   created_at: string
@@ -90,11 +96,25 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
-  async function createTask(requirement: string, workspaceDir: string, domain: string) {
+  async function createTask(
+    requirement: string,
+    workspaceDir: string,
+    domain: string,
+    verificationProfile = 'none',
+    maxRounds = 3,
+    threshold = 85,
+  ) {
     loading.value = true
     error.value = null
     try {
-      const result = await taskApi.createTask(requirement, workspaceDir, domain)
+      const result = await taskApi.createTask(
+        requirement,
+        workspaceDir,
+        domain,
+        verificationProfile,
+        maxRounds,
+        threshold,
+      )
       await fetchTasks()
       return result
     } catch (e: any) {
@@ -141,6 +161,16 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  async function approveChangeset(id: string) {
+    await taskApi.approveChangeset(id)
+    await fetchTask(id)
+  }
+
+  async function discardChangeset(id: string) {
+    await taskApi.discardChangeset(id)
+    await fetchTask(id)
+  }
+
   function updateTaskProgress(progress: TaskProgress) {
     const index = tasks.value.findIndex((t) => t.id === progress.task_id)
     if (index !== -1) {
@@ -168,6 +198,8 @@ export const useTaskStore = defineStore('task', () => {
     pauseTask,
     resumeTask,
     cancelTask,
+    approveChangeset,
+    discardChangeset,
     updateTaskProgress,
   }
 })

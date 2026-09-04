@@ -19,6 +19,7 @@ from src.models.task import (
     SubTask,
     TaskStatus,
 )
+from src.models.run import RunConfig, VerificationSummary
 from src.orchestrator import Orchestrator
 from src.store.state_store import StateStore
 from src.tools.filesystem import FileWorkspace
@@ -88,6 +89,7 @@ class TaskExecutor:
         max_rounds: int = 5,
         use_file_mode: bool = True,
         on_progress: Optional[Callable[[str, dict], None]] = None,
+        run_config: Optional[RunConfig] = None,
     ):
         """
         初始化执行器
@@ -105,7 +107,8 @@ class TaskExecutor:
         self.store = store
         self.generator = generator
         self.critic = critic
-        self.max_rounds = max_rounds
+        self.run_config = run_config
+        self.max_rounds = run_config.max_rounds if run_config else max_rounds
         self.use_file_mode = use_file_mode
         self.on_progress = on_progress
         
@@ -114,6 +117,7 @@ class TaskExecutor:
         
         # 当前执行的 Orchestrator
         self._current_orchestrator: Optional[Orchestrator] = None
+        self._round_verifications: Dict[tuple[str, str, int], VerificationSummary] = {}
     
     def stop(self) -> None:
         """请求停止执行"""
@@ -157,8 +161,12 @@ class TaskExecutor:
                 max_rounds=self.max_rounds,
                 generator=self.generator,
                 critic=self.critic,
+                run_config=self.run_config,
                 on_round_complete=lambda r, d, c: self._on_round_complete(
                     task_id, subtask.id, r, d, c
+                ),
+                on_verification_complete=lambda r, summary: self._on_verification_complete(
+                    task_id, subtask.id, r, summary
                 ),
             )
             self._current_orchestrator = orchestrator
@@ -179,6 +187,13 @@ class TaskExecutor:
             
             # 4. 更新子任务状态
             subtask.iterations = result.iterations
+            if (
+                self.use_file_mode
+                and self.run_config
+                and any(step.required for step in self.run_config.verification_steps)
+                and not (result.verification_summary and result.verification_summary.passed)
+            ):
+                raise RuntimeError(result.convergence_reason)
             subtask.mark_completed(
                 result=result.final_output,
                 score=result.state.critique.score if result.state.critique else 0,
@@ -232,6 +247,11 @@ class TaskExecutor:
             "draft_preview": draft[:200] + "..." if len(draft) > 200 else draft,
         })
         
+        verification_summary = self._round_verifications.pop(
+            (task_id, subtask_id, round_num),
+            None,
+        )
+
         # 保存检查点（含本轮审查信息，供前端展示每轮内容）
         if self.store:
             checkpoint = Checkpoint(
@@ -244,11 +264,29 @@ class TaskExecutor:
                 issues=list(critique.issues) if critique else [],
                 suggestions=list(critique.suggestions) if critique else [],
                 summary=critique.summary if critique else None,
+                verification_summary=verification_summary,
             )
             try:
                 self.store.save_checkpoint(checkpoint)
             except Exception as e:
                 logger.warning(f"保存检查点失败: {e}")
+
+    def _on_verification_complete(
+        self,
+        task_id: str,
+        subtask_id: str,
+        round_num: int,
+        summary: VerificationSummary,
+    ) -> None:
+        """保存验证结果，并让同一轮检查点在轮次回调时一并持久化。"""
+        self._round_verifications[(task_id, subtask_id, round_num)] = summary
+        self._emit_progress("verification_completed", {
+            "subtask_id": subtask_id,
+            "round": round_num,
+            "passed": summary.passed,
+            "profile": summary.profile,
+            "results": [result.model_dump() for result in summary.results],
+        })
     
     def _on_generator_event(
         self,

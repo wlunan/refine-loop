@@ -24,7 +24,9 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from config.settings import get_config
 from src.manager.task_manager import TaskManager
+from src.models.run import RunConfig, VerificationProfile
 from src.models.task import TaskStatus
 
 from .common import sse_response
@@ -60,6 +62,9 @@ class CreateTaskRequest(BaseModel):
     requirement: str
     workspace_dir: str
     domain: str = "code"
+    max_rounds: int = 3
+    threshold: int = 85
+    verification_profile: VerificationProfile = "none"
 
 
 class TaskResponse(BaseModel):
@@ -119,10 +124,19 @@ async def create_task(request: CreateTaskRequest):
         domain: 任务领域
     """
     try:
+        settings = get_config().orchestrator
+        run_config = RunConfig.from_profile(
+            request.verification_profile,
+            max_rounds=request.max_rounds,
+            score_threshold=request.threshold,
+            round_token_budget=settings.round_token_budget,
+            total_token_budget=settings.total_token_budget,
+        )
         task = task_manager.create_task(
             requirement=request.requirement,
             workspace_dir=request.workspace_dir,
             domain=request.domain,
+            run_config=run_config,
         )
         return {"task_id": task.id, "title": task.title}
     except Exception as e:  # noqa: BLE001
@@ -173,6 +187,8 @@ async def get_task(task_id: str):
             "progress_percent": task.progress_percent,
             "workspace_dir": task.workspace_dir,
             "domain": task.domain,
+            "run_config": task.run_config.model_dump() if task.run_config else None,
+            "changeset": task.changeset.model_dump() if task.changeset else None,
             "error": task.error,
             "total_tokens": task.total_tokens,
             "created_at": task.created_at.isoformat(),
@@ -236,6 +252,38 @@ async def cancel_task(task_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/{task_id}/changeset")
+async def get_changeset(task_id: str):
+    """获取等待审阅的 Git diff。"""
+    try:
+        task = task_manager.get_task(task_id)
+        if not task.changeset:
+            raise HTTPException(status_code=404, detail="任务没有变更集")
+        return task.changeset
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{task_id}/changeset/approve")
+async def approve_changeset(task_id: str):
+    """确认将隔离 worktree 的变更应用到原始工作区。"""
+    try:
+        task_manager.approve_changeset(task_id)
+        return {"message": "变更已应用"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{task_id}/changeset/discard")
+async def discard_changeset(task_id: str):
+    """丢弃隔离 worktree 的变更。"""
+    try:
+        task_manager.discard_changeset(task_id)
+        return {"message": "变更已丢弃"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/{task_id}/progress")
 async def get_progress(task_id: str):
     """获取任务进度"""
@@ -280,6 +328,10 @@ async def get_subtask_rounds(task_id: str, subtask_id: str):
             "issues": cp.issues,
             "suggestions": cp.suggestions,
             "summary": cp.summary,
+            "verification_summary": (
+                cp.verification_summary.model_dump()
+                if cp.verification_summary else None
+            ),
             "tokens_used": cp.tokens_used,
             "created_at": cp.created_at.isoformat(),
         }

@@ -10,7 +10,6 @@ Critic 不再只说「我觉得这行可能有 bug」，而是能拿到「pytest
 报错是 XXX」这样的事实依据。
 
 工具：
-- run_command: 在沙箱内执行任意 shell 命令
 - run_tests:   运行 pytest
 - run_lint:    运行 ruff（未安装则回退 flake8）
 - run_python:  运行单个 Python 脚本（快速验证可运行性）
@@ -24,12 +23,17 @@ Critic 不再只说「我觉得这行可能有 bug」，而是能拿到「pytest
 
 from __future__ import annotations
 
+import os
+import shlex
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from typing import List
 
 from langchain_core.tools import tool
+
+from src.models.run import VerificationResult, VerificationStep, VerificationSummary
 
 
 @dataclass
@@ -41,6 +45,7 @@ class CommandResult:
     stdout: str = ""
     stderr: str = ""
     timed_out: bool = False
+    duration_seconds: float = 0.0
 
     @property
     def success(self) -> bool:
@@ -87,6 +92,14 @@ class CommandRunner:
             )
         return text
 
+    def _safe_workspace_path(self, path: str) -> str:
+        """Resolve an Agent-supplied path and reject paths outside the worktree."""
+        candidate = os.path.realpath(os.path.join(self.workspace_root, path))
+        root = os.path.realpath(self.workspace_root)
+        if os.path.commonpath([root, candidate]) != root:
+            raise ValueError(f"验证路径越界: {path}")
+        return candidate
+
     def run(self, command: str) -> CommandResult:
         """
         在工作区目录内执行一条 shell 命令
@@ -97,10 +110,11 @@ class CommandRunner:
         Returns:
             CommandResult（含退出码 / stdout / stderr）
         """
+        started_at = time.monotonic()
         try:
             proc = subprocess.run(
-                command,
-                shell=True,
+                shlex.split(command),
+                shell=False,
                 cwd=self.workspace_root,
                 timeout=self.timeout,
                 capture_output=True,
@@ -113,6 +127,7 @@ class CommandRunner:
                 exit_code=proc.returncode,
                 stdout=self._truncate(proc.stdout or ""),
                 stderr=self._truncate(proc.stderr or ""),
+                duration_seconds=time.monotonic() - started_at,
             )
         except subprocess.TimeoutExpired as e:
             stdout = ""
@@ -128,6 +143,39 @@ class CommandRunner:
                 stdout=self._truncate(stdout),
                 stderr=f"命令执行超时（>{self.timeout}s），已强制终止",
                 timed_out=True,
+                duration_seconds=time.monotonic() - started_at,
+            )
+
+    def run_args(self, args: list[str]) -> CommandResult:
+        """以 shell=False 执行受控参数列表，供内置验证 profile 使用。"""
+        started_at = time.monotonic()
+        try:
+            proc = subprocess.run(
+                args,
+                shell=False,
+                cwd=self.workspace_root,
+                timeout=self.timeout,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            return CommandResult(
+                command=" ".join(args),
+                exit_code=proc.returncode,
+                stdout=self._truncate(proc.stdout or ""),
+                stderr=self._truncate(proc.stderr or ""),
+                duration_seconds=time.monotonic() - started_at,
+            )
+        except subprocess.TimeoutExpired as e:
+            stdout = e.stdout.decode("utf-8", errors="replace") if isinstance(e.stdout, bytes) else str(e.stdout or "")
+            return CommandResult(
+                command=" ".join(args),
+                exit_code=-1,
+                stdout=self._truncate(stdout),
+                stderr=f"命令执行超时（{self.timeout}s），已强制终止",
+                timed_out=True,
+                duration_seconds=time.monotonic() - started_at,
             )
 
     def run_tests(self, path: str = ".", extra_args: str = "") -> CommandResult:
@@ -144,8 +192,10 @@ class CommandRunner:
         Returns:
             CommandResult（exit_code 0 表示全部通过，1 表示有失败）
         """
-        cmd = f'"{sys.executable}" -m pytest {path} -q {extra_args}'.strip()
-        return self.run(cmd)
+        safe_path = self._safe_workspace_path(path)
+        return self.run_args(
+            [sys.executable, "-m", "pytest", safe_path, "-q", *shlex.split(extra_args)]
+        )
 
     def run_lint(self, path: str = ".") -> CommandResult:
         """
@@ -157,10 +207,11 @@ class CommandRunner:
         Returns:
             CommandResult
         """
-        result = self.run(f'"{sys.executable}" -m ruff check {path}')
+        safe_path = self._safe_workspace_path(path)
+        result = self.run_args([sys.executable, "-m", "ruff", "check", safe_path])
         # ruff 未安装时（ModuleNotFoundError）回退 flake8
         if "No module named ruff" in result.stderr:
-            return self.run(f'"{sys.executable}" -m flake8 {path}')
+            return self.run_args([sys.executable, "-m", "flake8", safe_path])
         return result
 
     def run_python(self, script_path: str) -> CommandResult:
@@ -173,7 +224,55 @@ class CommandRunner:
         Returns:
             CommandResult
         """
-        return self.run(f'"{sys.executable}" "{script_path}"')
+        return self.run_args([sys.executable, self._safe_workspace_path(script_path)])
+
+
+class CodeVerifier:
+    """按运行配置执行一组确定性验证步骤。"""
+
+    def __init__(self, workspace_root: str, max_output_chars: int = 8000):
+        self.workspace_root = workspace_root
+        self.max_output_chars = max_output_chars
+
+    def verify(
+        self,
+        steps: list[VerificationStep],
+        profile: str = "none",
+    ) -> VerificationSummary:
+        """顺序执行验证并返回可持久化的汇总结果。"""
+        results: list[VerificationResult] = []
+        for step in steps:
+            runner = CommandRunner(
+                self.workspace_root,
+                timeout=step.timeout_seconds,
+                max_output_chars=self.max_output_chars,
+            )
+            # 复用既有 lint 降级：环境没有 ruff 时尝试 flake8，避免标准
+            # lint profile 因工具缺失而失去可用性。
+            if step.args:
+                command_result = runner.run_args(step.args)
+            elif step.id == "ruff":
+                command_result = runner.run_lint()
+            else:
+                command_result = CommandResult(
+                    command=step.command,
+                    exit_code=2,
+                    stderr="验证步骤缺少受控参数列表，已拒绝执行。",
+                )
+            results.append(
+                VerificationResult(
+                    step_id=step.id,
+                    label=step.label,
+                    required=step.required,
+                    passed=command_result.success,
+                    exit_code=command_result.exit_code,
+                    stdout=command_result.stdout,
+                    stderr=command_result.stderr,
+                    timed_out=command_result.timed_out,
+                    duration_seconds=command_result.duration_seconds,
+                )
+            )
+        return VerificationSummary(profile=profile, results=results)
 
 
 def build_verification_tools(runner: CommandRunner) -> list:
@@ -210,4 +309,5 @@ def build_verification_tools(runner: CommandRunner) -> list:
         """运行工作区内的一个 Python 脚本并返回执行结果，用于快速验证代码能否运行。script_path 为相对工作区根目录的路径。"""
         return runner.run_python(script_path).to_str()
 
-    return [run_command, run_tests, run_lint, run_python]
+    # Agent-facing verification is limited to fixed executables and sandboxed paths.
+    return [run_tests, run_lint, run_python]

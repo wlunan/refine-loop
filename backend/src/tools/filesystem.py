@@ -47,7 +47,7 @@ class FileWorkspace:
     _operations: List[dict] = field(default_factory=list, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        root = os.path.abspath(os.path.expanduser(self.root))
+        root = os.path.realpath(os.path.abspath(os.path.expanduser(self.root)))
         if not os.path.isdir(root):
             raise FileWorkspaceError(f"工作区目录不存在: {root}")
         self.root = root
@@ -73,7 +73,7 @@ class FileWorkspace:
             raise FileWorkspaceError("路径不能为空")
 
         # 绝对路径：直接解析后校验是否在根目录内
-        candidate = os.path.abspath(os.path.join(self.root, path))
+        candidate = os.path.realpath(os.path.abspath(os.path.join(self.root, path)))
 
         root_norm = os.path.normcase(self.root)
         cand_norm = os.path.normcase(candidate)

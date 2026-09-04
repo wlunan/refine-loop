@@ -21,7 +21,9 @@ from src.models.schemas import (
     CritiqueResult,
     IterationRecord,
 )
+from src.models.run import RunConfig, VerificationSummary
 from src.tools.filesystem import FileWorkspace
+from src.tools.verification import CodeVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,7 @@ class RunResult:
     convergence_reason: str
     score_trend: list
     total_time_seconds: float
+    verification_summary: Optional[VerificationSummary] = None
 
     def summary(self) -> str:
         """生成运行摘要"""
@@ -56,6 +59,11 @@ class RunResult:
             f"总耗时: {self.total_time_seconds:.2f}s",
             f"累计 Token: {self.state.total_tokens}",
             f"最终评分: {self.state.critique.score if self.state.critique else 'N/A'}",
+            (
+                "确定性验证: "
+                f"{'通过' if self.verification_summary.passed else '未通过'}"
+                if self.verification_summary else "确定性验证: 未配置"
+            ),
             "=" * 50,
         ]
         return "\n".join(lines)
@@ -77,6 +85,8 @@ class Orchestrator:
         on_iteration_complete: Optional[Callable[[int, CritiqueResult], None]] = None,
         on_round_complete: Optional[Callable[[int, str, CritiqueResult], None]] = None,
         on_generator_token: Optional[Callable[[int, str], None]] = None,
+        run_config: Optional[RunConfig] = None,
+        on_verification_complete: Optional[Callable[[int, VerificationSummary], None]] = None,
     ):
         """
         初始化编排器
@@ -94,12 +104,18 @@ class Orchestrator:
         """
         config = get_config()
         self.domain = domain
-        self.max_rounds = max_rounds or config.orchestrator.default_max_rounds
-        self.score_threshold = config.orchestrator.convergence_score_threshold
+        self.run_config = run_config or RunConfig(
+            max_rounds=max_rounds or config.orchestrator.default_max_rounds,
+            score_threshold=config.orchestrator.convergence_score_threshold,
+            round_token_budget=config.orchestrator.round_token_budget,
+            total_token_budget=config.orchestrator.total_token_budget,
+        )
+        self.max_rounds = self.run_config.max_rounds
+        self.score_threshold = self.run_config.score_threshold
         self.no_progress_rounds = config.orchestrator.no_progress_rounds
         # Token 预算：<= 0 表示不限制
-        self.round_token_budget = config.orchestrator.round_token_budget
-        self.total_token_budget = config.orchestrator.total_token_budget
+        self.round_token_budget = self.run_config.round_token_budget
+        self.total_token_budget = self.run_config.total_token_budget
         # 停止标志：线程安全的终止信号
         self._stop_event = threading.Event()
 
@@ -111,6 +127,7 @@ class Orchestrator:
         self.on_iteration_complete = on_iteration_complete
         self.on_round_complete = on_round_complete
         self.on_generator_token = on_generator_token
+        self.on_verification_complete = on_verification_complete
 
         logger.info(
             f"Orchestrator 初始化完成: domain={domain}, "
@@ -319,6 +336,12 @@ class Orchestrator:
         """
         start_time = time.time()
         workspace = FileWorkspace(workspace_dir)
+        verifier = CodeVerifier(workspace_dir)
+        verification_summary: Optional[VerificationSummary] = None
+        has_required_verification = any(
+            step.required for step in self.run_config.verification_steps
+        )
+        round_callback = on_round_complete or self.on_round_complete
         logger.info(f"开始执行文件模式任务: {task[:80]}... 工作区={workspace_dir}")
 
         state = AgentState(
@@ -341,7 +364,11 @@ class Orchestrator:
             logger.info(f"--- 第 {round_num} 轮文件迭代开始 ---")
 
             # 1. Generator 操作文件（首轮用原始任务，后续轮带上审查反馈）
-            gen_task = self._build_file_feedback_task(task, state.critique)
+            gen_task = self._build_file_feedback_task(
+                task,
+                state.critique,
+                verification_summary,
+            )
 
             def _on_event(event: dict) -> None:
                 if on_generator_event:
@@ -377,10 +404,23 @@ class Orchestrator:
                 duration_seconds=time.time() - start_time,
             ))
 
-            # 5. 触发回调
-            if on_round_complete:
+            # 5. 每轮完成后执行可复现验证。配置了必需步骤时，只有验证通过
+            # 才能宣告该轮成功，Critic 分数只保留为辅助诊断信息。
+            if has_required_verification:
+                verification_summary = verifier.verify(
+                    self.run_config.verification_steps,
+                    self.run_config.verification_profile,
+                )
+                if self.on_verification_complete:
+                    try:
+                        self.on_verification_complete(round_num, verification_summary)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"验证回调执行失败: {e}")
+
+            # 6. 触发完整轮次回调。验证先执行，使检查点可以同时保存评分与验证结果。
+            if round_callback:
                 try:
-                    on_round_complete(round_num, snapshot, critique)
+                    round_callback(round_num, snapshot, critique)
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"轮次回调执行失败: {e}")
 
@@ -389,7 +429,19 @@ class Orchestrator:
                 f"问题数={len(critique.issues)}"
             )
 
-            # 6. 检查收敛
+            if has_required_verification:
+                if verification_summary and verification_summary.passed:
+                    state.converged = True
+                    state.convergence_reason = "所有必需验证步骤均通过"
+                    break
+                if state.current_round >= self.max_rounds:
+                    state.convergence_reason = (
+                        f"达到最大轮数 {self.max_rounds}，必需验证仍未通过"
+                    )
+                    break
+                continue
+
+            # 7. 未配置验证时，保持原有 Critic 收敛语义。
             if self._check_convergence(state):
                 break
 
@@ -409,15 +461,29 @@ class Orchestrator:
             convergence_reason=state.convergence_reason or "未知",
             score_trend=state.get_score_trend(),
             total_time_seconds=time.time() - start_time,
+            verification_summary=verification_summary,
         )
         logger.info(result.summary())
         return result
 
     @staticmethod
-    def _build_file_feedback_task(task: str, critique: Optional[CritiqueResult]) -> str:
+    def _build_file_feedback_task(
+        task: str,
+        critique: Optional[CritiqueResult],
+        verification_summary: Optional[VerificationSummary] = None,
+    ) -> str:
         """把上一轮 Critic 审查反馈拼进任务，驱动 Generator 修改文件"""
-        if critique is None:
+        if critique is None and verification_summary is None:
             return task
+        verification_feedback = ""
+        if verification_summary and verification_summary.has_required_steps and not verification_summary.passed:
+            verification_feedback = (
+                "\n\n【上一轮确定性验证失败】\n"
+                f"{verification_summary.evidence()}\n"
+                "请优先根据以上真实执行证据修改工作区文件，并在下一轮重新验证。\n"
+            )
+        if critique is None:
+            return f"{task}{verification_feedback}"
         issues = "\n".join(
             f"{i + 1}. {x}" for i, x in enumerate(critique.issues)
         ) or "无"
@@ -430,7 +496,7 @@ class Orchestrator:
             f"评分: {critique.score}/100\n"
             f"问题:\n{issues}\n\n"
             f"修改建议:\n{suggestions}\n\n"
-            f"请根据以上反馈，修改工作区中的相关文件。"
+            f"请根据以上反馈，修改工作区中的相关文件。{verification_feedback}"
         )
 
     def _check_convergence(self, state: AgentState) -> bool:

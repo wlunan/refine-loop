@@ -20,6 +20,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from config.settings import get_config
+from src.models.run import RunConfig
 from src.orchestrator import Orchestrator
 
 from .common import sse_event, sse_response, truncate
@@ -34,6 +35,18 @@ _active_runs_lock = threading.Lock()
 def _emit(queue: asyncio.Queue, loop: asyncio.AbstractEventLoop, event: dict):
     """从后台线程安全地把事件放入队列"""
     loop.call_soon_threadsafe(queue.put_nowait, event)
+
+
+def _build_run_config(max_rounds: int, threshold: int, profile: str = "none") -> RunConfig:
+    """从请求参数创建运行实例配置，绝不修改全局 settings 单例。"""
+    settings = get_config().orchestrator
+    return RunConfig.from_profile(
+        profile,  # type: ignore[arg-type]
+        max_rounds=max_rounds,
+        score_threshold=threshold,
+        round_token_budget=settings.round_token_budget,
+        total_token_budget=settings.total_token_budget,
+    )
 
 
 @router.get("/api/stream")
@@ -62,6 +75,14 @@ async def stream(request: Request):
 
         return sse_response(_empty())
 
+    try:
+        run_config = _build_run_config(max_rounds, threshold)
+    except (KeyError, ValueError) as e:
+        async def _invalid_config():
+            yield sse_event({"type": "error", "message": f"运行配置无效: {e}"})
+            yield sse_event({"type": "end"})
+        return sse_response(_invalid_config())
+
     run_id = uuid.uuid4().hex
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
@@ -80,13 +101,9 @@ async def stream(request: Request):
             "summary": critique.summary,
         })
 
-    # 修改全局配置的收敛阈值（get_config 返回单例）
-    config = get_config()
-    config.orchestrator.convergence_score_threshold = threshold
-
     orchestrator = Orchestrator(
         domain=domain,
-        max_rounds=max_rounds,
+        run_config=run_config,
         on_generator_token=on_token,
         on_round_complete=on_round,
     )
@@ -207,6 +224,7 @@ async def stream_files(request: Request):
     domain = request.query_params.get("domain", "code")
     max_rounds = int(request.query_params.get("max_rounds", "3"))
     threshold = int(request.query_params.get("threshold", "85"))
+    verification_profile = request.query_params.get("verification_profile", "none")
 
     async def _error(message: str):
         yield sse_event({"type": "error", "message": message})
@@ -218,6 +236,15 @@ async def stream_files(request: Request):
         return sse_response(_error("请选择工作区目录"))
     if not os.path.isdir(workspace):
         return sse_response(_error(f"工作区目录不存在: {workspace}"))
+
+    try:
+        run_config = _build_run_config(
+            max_rounds,
+            threshold,
+            verification_profile,
+        )
+    except (KeyError, ValueError) as e:
+        return sse_response(_error(f"运行配置无效: {e}"))
 
     run_id = uuid.uuid4().hex
     loop = asyncio.get_running_loop()
@@ -244,13 +271,20 @@ async def stream_files(request: Request):
             "summary": critique.summary,
         })
 
-    config = get_config()
-    config.orchestrator.convergence_score_threshold = threshold
+    def on_verification(round_num: int, summary):
+        _emit(queue, loop, {
+            "type": "verification",
+            "round": round_num,
+            "profile": summary.profile,
+            "passed": summary.passed,
+            "results": [result.model_dump() for result in summary.results],
+        })
 
     orchestrator = Orchestrator(
         domain=domain,
-        max_rounds=max_rounds,
+        run_config=run_config,
         on_round_complete=on_round,
+        on_verification_complete=on_verification,
     )
     with _active_runs_lock:
         _active_runs[run_id] = orchestrator
@@ -276,6 +310,10 @@ async def stream_files(request: Request):
                 "convergence_reason": result.convergence_reason,
                 "score_trend": result.score_trend,
                 "total_time": round(result.total_time_seconds, 2),
+                "verification": (
+                    result.verification_summary.model_dump()
+                    if result.verification_summary else None
+                ),
             })
         except Exception as e:  # noqa: BLE001
             _emit(queue, loop, {"type": "error", "message": str(e)})

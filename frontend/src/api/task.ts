@@ -16,7 +16,14 @@ export const taskApi = {
     return response.json()
   },
 
-  async createTask(requirement: string, workspaceDir: string, domain: string) {
+  async createTask(
+    requirement: string,
+    workspaceDir: string,
+    domain: string,
+    verificationProfile = 'none',
+    maxRounds = 3,
+    threshold = 85,
+  ) {
     const response = await fetch(`${API_BASE}/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -24,6 +31,9 @@ export const taskApi = {
         requirement,
         workspace_dir: workspaceDir,
         domain,
+        verification_profile: verificationProfile,
+        max_rounds: maxRounds,
+        threshold,
       }),
     })
     if (!response.ok) {
@@ -62,6 +72,24 @@ export const taskApi = {
       method: 'POST',
     })
     if (!response.ok) throw new Error('取消任务失败')
+    return response.json()
+  },
+
+  async approveChangeset(id: string) {
+    const response = await fetch(`${API_BASE}/tasks/${id}/changeset/approve`, { method: 'POST' })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || '应用变更失败')
+    }
+    return response.json()
+  },
+
+  async discardChangeset(id: string) {
+    const response = await fetch(`${API_BASE}/tasks/${id}/changeset/discard`, { method: 'POST' })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || '丢弃变更失败')
+    }
     return response.json()
   },
 

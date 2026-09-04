@@ -5,6 +5,7 @@ Orchestrator 单元测试
 
 import sys
 import os
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 
@@ -15,7 +16,12 @@ import pytest
 from src.agents.critic import CriticAgent
 from src.agents.generator import GeneratorAgent
 from src.models.schemas import CritiqueResult
+from src.models.run import RunConfig, VerificationStep
+from src.models.task import SubTask, TaskStatus
 from src.orchestrator import Orchestrator
+from src.executor.task_executor import TaskContext, TaskExecutor
+from src.store.state_store import StateStore
+from src.tools.filesystem import FileWorkspace
 
 
 class MockLLM:
@@ -219,3 +225,83 @@ class TestOrchestrator:
 
         # 未收敛时应返回评分最高的版本（v2）
         assert result.final_output == "v2"
+
+    def test_file_mode_requires_verification_even_with_high_critic_score(self, tmp_path):
+        """配置验证后，Critic 高分不能绕过真实命令失败。"""
+        class FileGenerator:
+            total_tokens_used = 0
+
+            def generate_with_files(self, task, workspace_dir, on_event=None):
+                Path(workspace_dir, "generated.py").write_text("value = 1\n", encoding="utf-8")
+
+        critic = create_mock_critic([
+            CritiqueResult(score=100, issues=[], acceptable=True),
+            CritiqueResult(score=100, issues=[], acceptable=True),
+        ])
+        config = RunConfig(
+            max_rounds=2,
+            score_threshold=85,
+            verification_profile="none",
+            verification_steps=[VerificationStep(
+                id="always_fail",
+                label="always fail",
+                command=f'"{sys.executable}" -c "import sys; sys.exit(1)"',
+            )],
+        )
+        verification_events = []
+        orchestrator = Orchestrator(
+            generator=FileGenerator(),
+            critic=critic,
+            run_config=config,
+            on_verification_complete=lambda round_num, summary: verification_events.append(
+                (round_num, summary.passed)
+            ),
+        )
+
+        result = orchestrator.run_with_files("create a file", str(tmp_path))
+
+        assert result.converged is False
+        assert result.iterations == 2
+        assert result.verification_summary is not None
+        assert result.verification_summary.passed is False
+        assert verification_events == [(1, False), (2, False)]
+
+    def test_task_executor_persists_failed_verification_and_marks_subtask_failed(self, tmp_path):
+        """长任务主链路保存验证检查点，验证耗尽后不能标记完成。"""
+        class FileGenerator:
+            total_tokens_used = 0
+
+            def generate_with_files(self, task, workspace_dir, on_event=None):
+                Path(workspace_dir, "generated.py").write_text("value = 1\n", encoding="utf-8")
+
+        config = RunConfig(
+            max_rounds=1,
+            score_threshold=85,
+            verification_steps=[VerificationStep(
+                id="always_fail",
+                label="always fail",
+                command=f'"{sys.executable}" -c "import sys; sys.exit(1)"',
+            )],
+        )
+        workspace = FileWorkspace(str(tmp_path))
+        store = StateStore(str(tmp_path / "state"))
+        executor = TaskExecutor(
+            workspace=workspace,
+            store=store,
+            generator=FileGenerator(),
+            critic=create_mock_critic([CritiqueResult(score=100, issues=[], acceptable=True)]),
+            run_config=config,
+        )
+        subtask = SubTask(id="subtask_1", title="write file", description="write generated.py")
+
+        result = executor.execute(
+            subtask,
+            TaskContext(workspace),
+            task_id="task_verification",
+        )
+        checkpoints = store.list_checkpoints("task_verification", "subtask_1")
+
+        assert result.status == TaskStatus.FAILED
+        assert len(checkpoints) == 1
+        assert checkpoints[0].verification_summary is not None
+        assert checkpoints[0].verification_summary.passed is False

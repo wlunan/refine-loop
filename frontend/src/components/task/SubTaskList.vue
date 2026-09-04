@@ -31,6 +31,11 @@ interface RoundRecord {
   suggestions: string[]
   summary: string | null
   tokens_used: number
+  verification_summary: {
+    profile: string
+    passed: boolean
+    results: Array<{ step_id: string; label: string; passed: boolean; exit_code: number | null }>
+  } | null
 }
 
 const props = defineProps<{ taskId: string; subtasks: SubTask[] }>()
@@ -144,6 +149,10 @@ async function toggle(subtask: SubTask) {
             <div v-if="r.summary" class="rg">
               <span class="rl">总结</span>
               <p class="rs">{{ r.summary }}</p>
+            </div>
+            <div v-if="r.verification_summary" class="rg">
+              <span class="rl">确定性验证 · {{ r.verification_summary.passed ? '通过' : '未通过' }}</span>
+              <ul class="rlist"><li v-for="result in r.verification_summary.results" :key="result.step_id">{{ result.label }}：{{ result.passed ? '通过' : `失败（退出码 ${result.exit_code}）` }}</li></ul>
             </div>
           </div>
         </div>

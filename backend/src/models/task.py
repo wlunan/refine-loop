@@ -11,6 +11,9 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from src.models.run import RunConfig, VerificationSummary
+from src.models.changeset import ChangeSet
+
 
 class TaskStatus(str, Enum):
     """任务状态枚举"""
@@ -18,6 +21,7 @@ class TaskStatus(str, Enum):
     PLANNING = "planning"        # 正在分解任务
     RUNNING = "running"          # 执行中
     PAUSED = "paused"            # 已暂停
+    AWAITING_APPROVAL = "awaiting_approval"  # 等待用户审阅变更
     COMPLETED = "completed"      # 已完成
     FAILED = "failed"            # 失败
     CANCELLED = "cancelled"      # 已取消
@@ -166,6 +170,10 @@ class Checkpoint(BaseModel):
         default=None,
         description="本轮审查总结"
     )
+    verification_summary: Optional[VerificationSummary] = Field(
+        default=None,
+        description="本轮确定性验证结果"
+    )
     created_at: datetime = Field(default_factory=datetime.now)
 
 
@@ -175,9 +183,21 @@ class Task(BaseModel):
     title: str = Field(description="任务标题")
     description: str = Field(description="原始需求描述")
     workspace_dir: str = Field(description="工作目录")
+    execution_workspace_dir: Optional[str] = Field(
+        default=None,
+        description="Agent 实际执行的隔离 Git worktree"
+    )
     domain: str = Field(
         default="code",
         description="任务领域: code/writing/design"
+    )
+    run_config: Optional[RunConfig] = Field(
+        default=None,
+        description="本任务独立的编排与验证配置"
+    )
+    changeset: Optional[ChangeSet] = Field(
+        default=None,
+        description="等待确认或已处理的代码变更集"
     )
     status: TaskStatus = Field(
         default=TaskStatus.PENDING,
@@ -241,7 +261,7 @@ class Task(BaseModel):
         return self.status in (
             TaskStatus.COMPLETED,
             TaskStatus.FAILED,
-            TaskStatus.CANCELLED
+            TaskStatus.CANCELLED,
         )
 
 

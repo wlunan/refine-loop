@@ -3,10 +3,11 @@ import { computed } from 'vue'
 interface Task { id: string; status: string; progress_percent: number; total_tokens: number; error: string | null }
 const props = defineProps<{ task: Task }>()
 const statusColor = computed(() => {
-  switch (props.task.status) { case 'running': return 'var(--c-accent)'; case 'completed': return 'var(--c-success)'; case 'failed': return 'var(--c-danger)'; case 'paused': return 'var(--c-warning)'; default: return 'var(--c-text-3)' }
+  switch (props.task.status) { case 'running': return 'var(--c-accent)'; case 'awaiting_approval': return 'var(--c-warning)'; case 'completed': return 'var(--c-success)'; case 'failed': return 'var(--c-danger)'; case 'paused': return 'var(--c-warning)'; default: return 'var(--c-text-3)' }
 })
 const statusText = computed(() => {
   const t: Record<string,string> = { pending:'等待中', planning:'规划中', running:'运行中', paused:'已暂停', completed:'已完成', failed:'失败', cancelled:'已取消' }
+  if (props.task.status === 'awaiting_approval') return '等待审阅'
   return t[props.task.status] || props.task.status
 })
 </script>

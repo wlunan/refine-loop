@@ -27,7 +27,7 @@
 
 > 这是一个把「**单次 LLM 问答**」升级为「**可自我迭代的多 Agent 协作系统**」的最小可运行范例。
 
-它通过两个角色互相对弈——**Generator（生成者）负责产出、Critic（批判者）负责挑刺**——让模型在"生成 → 审查 → 按反馈修改 → 再审查"的循环中，持续逼近更高质量的产出。
+它通过两个角色互相对弈——**Generator（生成者）负责产出、Critic（批判者）负责挑刺**——让模型在“生成 → 审查 → 按反馈修改 → 再审查”的循环中，持续逼近更高质量的产出。当前代码还提供文件工作区工具、命令验证、长任务管理和独立的代码自愈循环。
 
 ### 1.2 它解决的核心问题 🟢
 
@@ -54,13 +54,13 @@
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                     调用入口层                            │
-│   examples/ (终端示例)      web/ (FastAPI + SSE 网页)     │
+│   examples/ (终端示例)      frontend/ + FastAPI（网页）    │
 └──────────────────────┬──────────────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────────────┐
 │                  编排层 (Orchestrator)                    │
-│   命令式：src/orchestrator/orchestrator.py               │
-│   图状态机（可选）：src/graph/workflow.py (LangGraph)      │
+│   命令式：backend/src/orchestrator/orchestrator.py       │
+│   图状态机（可选）：backend/src/graph/workflow.py (LangGraph) │
 │   职责：控制迭代循环、状态管理、收敛判断、结果汇总           │
 └───────┬──────────────────────────────┬──────────────────┘
         │                              │
@@ -82,7 +82,7 @@
 └───────────────────────┬──────────────────────────────┘
                         │
 ┌───────────────────────▼──────────────────────────────┐
-│           Prompt 层 (prompts/)  +  配置层 (config/)     │
+│      Prompt 层 (backend/src/prompts/) + 配置层 (backend/config/) │
 │   四领域系统提示词 + 消息模板     环境变量/模型/编排参数    │
 └──────────────────────────────────────────────────────┘
 ```
@@ -94,7 +94,7 @@
 | **LangChain** (`ChatOpenAI`) | LLM 统一调用抽象 | `base.py` |
 | **LangGraph** (`StateGraph`) | 图状态机版工作流（可选） | `graph/workflow.py` |
 | **Pydantic** | 数据建模 + 结构化输出校验 | `models/schemas.py` |
-| **python-dotenv** | 环境变量管理 | `config/settings.py` |
+| **python-dotenv** | 环境变量管理 | `backend/config/settings.py` |
 | **FastAPI + SSE** | 流式 Web 服务 | `backend/server.py` |
 | **pytest + Mock** | 离线单元测试 | `tests/` |
 
@@ -106,62 +106,65 @@
 
 | 模块 | 职责一句话 | 核心文件 | 难度 |
 |------|-----------|---------|------|
-| **配置管理** | 统一读取环境变量/模型参数，单例模式 | `config/settings.py` | 🟢 |
-| **数据模型** | 定义系统"契约"：审查结果、状态、历史 | `src/models/schemas.py` | 🟢 |
-| **Agent 基类** | 封装 LLM 调用/流式/重试/token 统计 | `src/agents/base.py` | 🟡 |
-| **Generator** | 首轮生成 + 按反馈迭代 + 提取产出 | `src/agents/generator.py` | 🟡 |
-| **Critic** | 审查产出 + 结构化输出 + 容错解析 | `src/agents/critic.py` | 🔴 |
-| **Orchestrator** | 迭代循环 + 收敛判断 + 回调 | `src/orchestrator/orchestrator.py` | 🟡 |
-| **Prompt 模板** | 四领域系统提示词 + 消息模板 | `src/prompts/*.py` | 🟢 |
-| **LangGraph 工作流** | 图状态机版的同一套流程（对比学习） | `src/graph/workflow.py` | 🔴 |
-| **Web 服务** | 流式 SSE + 可视化界面 | `backend/server.py` + `backend/frontend` | 🟡 |
+| **配置管理** | 统一读取环境变量/模型参数，单例模式 | `backend/config/settings.py` | 🟢 |
+| **数据模型** | 定义系统“契约”：审查结果、状态、历史 | `backend/src/models/schemas.py` | 🟢 |
+| **Agent 基类** | 封装 LLM 调用/流式/重试/token 统计 | `backend/src/agents/base.py` | 🟡 |
+| **Generator** | 首轮生成 + 按反馈迭代 + 提取产出 | `backend/src/agents/generator.py` | 🟡 |
+| **Critic** | 审查产出 + 结构化输出 + 容错解析 | `backend/src/agents/critic.py` | 🔴 |
+| **Orchestrator** | 迭代循环 + 收敛判断 + 回调 | `backend/src/orchestrator/orchestrator.py` | 🟡 |
+| **Prompt 模板** | 四领域系统提示词 + 消息模板 | `backend/src/prompts/*.py` | 🟢 |
+| **LangGraph 工作流** | 图状态机版的同一套流程（对比学习） | `backend/src/graph/workflow.py` | 🔴 |
+| **Web 服务** | 路由、SSE 与前端托管 | `backend/server.py` + `backend/routers/` + `frontend/` | 🟡 |
+| **文件与验证工具** | 工作区操作、命令执行与工具调用循环 | `backend/src/tools/`、`backend/src/agents/tool_agent.py` | 🔴 |
+| **长任务** | 任务分解、依赖顺序执行、检查点持久化 | `backend/src/planner/`、`backend/src/manager/`、`backend/src/executor/`、`backend/src/store/` | 🔴 |
 | **示例** | 不同场景的可运行入口 | `examples/*.py` | 🟢 |
 | **测试** | 用 Mock LLM 离线验证核心逻辑 | `tests/*.py` | 🟡 |
 
 ### 3.1 各模块简要说明
 
-**配置管理 `config/settings.py`** 🟢
+**配置管理 `backend/config/settings.py`** 🟢
 - 用 dataclass 组织 `LLMConfig`（模型/温度/超时）和 `OrchestratorConfig`（轮数/阈值）。
 - `get_config()` 返回全局单例，`load_dotenv(override=True)` 让 `.env` 优先于系统环境变量。
 - 学习点：**配置集中管理 + 单例**，便于全局统一调整（例如 `multi_round_demo.py` 里改阈值）。
 
-**数据模型 `src/models/schemas.py`** 🟢
+**数据模型 `backend/src/models/schemas.py`** 🟢
 - `CritiqueResult`：系统最核心的结构化输出（`score`/`issues`/`suggestions`/`acceptable`/`summary`），带 `field_validator` 做一致性校验（如"acceptable=True 时分数不能低于 60"）。
 - `AgentState`：整个迭代过程的状态快照，含 `history` 和 `get_best_draft()`、`get_score_trend()` 两个工具方法。
 - 学习点：**用 Pydantic 定义领域契约**，是后续所有逻辑的基础。
 
-**Agent 基类 `src/agents/base.py`** 🟡
+**Agent 基类 `backend/src/agents/base.py`** 🟡
 - `call_llm`（阻塞）、`call_llm_stream`（流式 yield）、`call_llm_with_retry`（重试）。
 - 支持**外部注入 `llm`**，这是测试能用 Mock 跑通的关键设计。
 - 学习点：**依赖注入**让 Agent 与具体模型解耦。
 
-**Generator `src/agents/generator.py`** 🟡
+**Generator `backend/src/agents/generator.py`** 🟡
 - `_build_user_message` 区分"首次生成"和"基于反馈迭代"两种消息。
 - `_extract_final_output` 用正则提取 `【最终产出】` 等标记，拿"干净"的产出。
 - 学习点：**用固定标记控制模型输出结构**，再切割提取。
 
-**Critic `src/agents/critic.py`** 🔴
+**Critic `backend/src/agents/critic.py`** 🔴
 - 这是全项目**工程细节最丰富**的文件，值得精读。
 - 把 `PydanticOutputParser.get_format_instructions()` 注入 prompt → 三级降级解析（直接解析 → 正则提取 JSON → 类型容错）→ 最终兜底。
 - 学习点：**对 LLM 输出的防御性编程**，详见[第六节](#六重点难点提示)。
 
-**Orchestrator `src/orchestrator/orchestrator.py`** 🟡
+**Orchestrator `backend/src/orchestrator/orchestrator.py`** 🟡
 - `run()` 主循环：生成 → 审查 → 记录 → 回调 → 判断收敛。
-- `_check_convergence()`：三种终止条件。
+- `convergence.py::evaluate_convergence()`：三种终止条件，由命令式编排器和 LangGraph 工作流共用。
 - `_build_result()`：未收敛时返回**历史最优版本**而非最后一版。
 - 学习点：**控制流与业务逻辑分离**（回调解耦展示层）。
 
-**Prompt 模板 `src/prompts/*.py`** 🟢
+**Prompt 模板 `backend/src/prompts/*.py`** 🟢
 - 四个领域（general/code/writing/design）各有一套 Generator 和 Critic 提示词。
 - 学习点：**按领域切换 prompt** 的工程组织方式，以及好的 prompt 怎么写（明确输出格式、评分标准、审查维度）。
 
-**LangGraph 工作流 `src/graph/workflow.py`** 🔴
+**LangGraph 工作流 `backend/src/graph/workflow.py`** 🔴
 - 用 `StateGraph` 把同一套流程表达成 `generate → critique → (条件边) → generate / END`。
 - 学习点：**同一业务逻辑的两种实现**（命令式 vs 图状态机）对比，理解 LangGraph 的节点/边/条件路由思想。
 
-**Web 服务 `web/`** 🟡
-- `server.py`：FastAPI 起服务，`/api/stream` 用 SSE 在后台线程跑 Orchestrator，`loop.call_soon_threadsafe` 安全推事件。
-- 学习点：**LLM 流式输出如何通过 SSE 送到浏览器**（打字机效果）。
+**Web 服务 `backend/server.py` + `backend/routers/`** 🟡
+- `workbench.py`：文本/文件模式 SSE、目录浏览与停止；`tasks.py`：长任务 REST 接口和事件流。
+- `server.py`：注册路由并托管前端构建产物；后台线程经 `loop.call_soon_threadsafe` 安全推事件。
+- 学习点：**LLM 流式输出如何通过 SSE 送到浏览器**（打字机效果），以及单次迭代与长任务事件流的区别。
 
 **测试 `tests/`** 🟡
 - `test_orchestrator.py` 用 `MockLLM`（自定义 `invoke` 返回预设内容）+ `MagicMock` 注入，**完全离线**验证收敛逻辑。
@@ -202,7 +205,7 @@ run(task)
 
 ### 4.2 收敛判断（三种终止条件）🟡
 
-`_check_convergence()` 中，满足**任一**即停止：
+`convergence.py` 的 `evaluate_convergence()` 中，满足**任一**即停止；命令式编排器和 LangGraph 工作流共用该函数：
 
 1. **质量达标**：`acceptable == True` 且 `score >= 阈值`（默认 85）。
 2. **无新反馈**：连续 N 轮（默认 2）`issues` 完全相同（`issues_match` 用集合比较）。
@@ -252,7 +255,7 @@ LLM 原始回复
 | 1 | `README.md` | 架构图、收敛机制、快速开始 | 建立整体认知 |
 | 2 | `examples/quick_start.py` | 最简用法 + `on_round_complete` 回调 | 看懂"怎么用" |
 | 3 | `examples/multi_round_demo.py` | 如何触发多轮（复杂任务 + 提高阈值） | 理解"为什么有时候只跑一轮" |
-| 4 | `config/settings.py` | 有哪些配置项 | 知道参数在哪调 |
+| 4 | `backend/config/settings.py` | 有哪些配置项 | 知道参数在哪调 |
 
 > **验收标准**：能回答"这个系统输入什么、输出什么、靠什么停下来"。
 
@@ -260,10 +263,10 @@ LLM 原始回复
 
 | 顺序 | 文件 | 重点 | 目标 |
 |------|------|------|------|
-| 5 | `src/models/schemas.py` | `CritiqueResult`、`AgentState` 的字段与校验 | 先吃透"数据契约" |
-| 6 | `src/orchestrator/orchestrator.py` | `run()` 主循环 + `_check_convergence()` | 吃透控制流 |
-| 7 | `src/agents/generator.py` | 首轮 vs 迭代消息、产出提取 | 理解 Generator 怎么做 |
-| 8 | `src/agents/base.py` | `call_llm` / `call_llm_stream` / 重试 | 理解 LLM 调用封装 |
+| 5 | `backend/src/models/schemas.py` | `CritiqueResult`、`AgentState` 的字段与校验 | 先吃透“数据契约” |
+| 6 | `backend/src/orchestrator/orchestrator.py`、`backend/src/convergence.py` | `run()` 主循环 + `evaluate_convergence()` | 吃透控制流 |
+| 7 | `backend/src/agents/generator.py` | 首轮 vs 迭代消息、产出提取 | 理解 Generator 怎么做 |
+| 8 | `backend/src/agents/base.py` | `call_llm` / `call_llm_stream` / 重试 | 理解 LLM 调用封装 |
 
 > **验收标准**：能对着代码画出[4.1 的主迭代流程图](#41-主迭代流程)，并说清三种收敛条件各自在哪个函数、如何判断。
 
@@ -271,9 +274,9 @@ LLM 原始回复
 
 | 顺序 | 文件 | 重点 | 目标 |
 |------|------|------|------|
-| 9 | `src/agents/critic.py` | 三级降级解析 + `_coerce_critique` 容错 | 全项目精华，精读 |
-| 10 | `src/prompts/critic_prompt.py` | 审查维度、评分标准、JSON 输出要求 | 理解"好 prompt 长什么样" |
-| 11 | `src/prompts/generator_prompt.py` | 输出格式标记（`【最终产出】`等） | 理解标记切割的配合 |
+| 9 | `backend/src/agents/critic.py` | 三级降级解析 + `_coerce_critique` 容错 | 全项目精华，精读 |
+| 10 | `backend/src/prompts/critic_prompt.py` | 审查维度、评分标准、JSON 输出要求 | 理解“好 prompt 长什么样” |
+| 11 | `backend/src/prompts/generator_prompt.py` | 输出格式标记（`【最终产出】`等） | 理解标记切割的配合 |
 | 12 | `tests/test_orchestrator.py` | `MockLLM` 如何离线测试收敛 | 学会给 LLM 应用写测试 |
 
 > **验收标准**：能说清"Critic 回复解析失败时会经历哪几步、每一步兜什么底"，以及"为什么要把 JSON Schema 注入 prompt"。
@@ -282,9 +285,11 @@ LLM 原始回复
 
 | 顺序 | 文件 | 重点 | 目标 |
 |------|------|------|------|
-| 13 | `src/graph/workflow.py` | 图状态机的节点/边/条件路由 | 对比命令式实现 |
-| 14 | `backend/server.py` + `backend/frontend` | SSE 流式推送 + 前端折叠交互 | 理解流式产品化 |
+| 13 | `backend/src/graph/workflow.py` | 图状态机的节点/边/条件路由 | 对比命令式实现 |
+| 14 | `backend/routers/workbench.py` + `frontend/src/views/Workbench.vue` | SSE 流式推送 + 工作台交互 | 理解流式产品化 |
 | 15 | `examples/from_draft_example.py` | 传入初始草稿的用法 | 理解"润色/review"场景 |
+| 16 | `backend/src/tools/filesystem.py`、`backend/src/tools/verification.py`、`backend/src/agents/tool_agent.py` | 文件、命令与工具调用 | 理解真实文件操作的能力边界 |
+| 17 | `backend/src/manager/task_manager.py`、`backend/src/executor/task_executor.py`、`benchmark/` | 长任务、自愈和评估 | 理解持久化与验证驱动闭环 |
 
 > **验收标准**：能说出"命令式 Orchestrator 和 LangGraph 图版本各自适用什么场景"。
 
@@ -300,7 +305,7 @@ LLM 原始回复
 - **解法套路**：`注入格式说明 → 直接解析 → 正则提取 → 类型容错 → 兜底`，层层设防，永不崩溃。
 - **迁移价值**：任何"让 LLM 输出结构化数据"的场景都要这么做。
 
-### 🔴 难点 2：收敛机制 = 成本控制（`orchestrator.py`）
+### 🔴 难点 2：收敛机制 = 成本控制（`convergence.py`）
 
 - **为什么难**：看似只是几个 if 判断，实则是一个完整的"终止策略"设计。
 - **关键细节**：未收敛时返回**历史最优版本**（`get_best_draft`），因为迭代不是单调上升的。
@@ -311,7 +316,7 @@ LLM 原始回复
 - `BaseAgent` 可注入 `llm`、`Orchestrator` 可注入 `generator`/`critic`。
 - **价值**：这是测试能完全离线跑、以及未来替换模型的根基。理解它，才能理解 `tests/` 为什么能 Mock。
 
-### 🟡 难点 4：流式输出的链路（`base.py` → `orchestrator.py` → `backend/server.py`）
+### 🟡 难点 4：流式输出的链路（`base.py` → `orchestrator.py` → `routers/workbench.py`）
 
 - `invoke`（一次性）与 `stream`（逐块）的区别 → 回调把 token 传给上层 → SSE 推给浏览器。
 - **价值**：理解"打字机效果"背后的完整数据流。
@@ -322,7 +327,7 @@ LLM 原始回复
 
 按难度递增，验证自己是否真的掌握：
 
-1. **🟢 复现与观察**：运行 `python examples/quick_start.py` 和 `examples/multi_round_demo.py`，观察每轮评分变化，回答"为什么前者只跑一轮、后者跑多轮"。
+1. **🟢 复现与观察**：运行 `python examples/quick_start.py` 和 `examples/multi_round_demo.py`，观察每轮评分变化，回答“为什么前者只跑一轮、后者跑多轮”。
 
 2. **🟡 改参数看效果**：把收敛阈值改成 99、把 `max_rounds` 改成 10，观察迭代行为变化；把 `domain` 从 `general` 换成 `code`，比较 Critic 审查维度的差异。
 
@@ -346,7 +351,10 @@ LLM 原始回复
 阶段三（LLM 细节） critic → critic_prompt → generator_prompt → test_orchestrator
         │
         ▼
-阶段四（扩展对比） graph/workflow → web/ → from_draft_example
+阶段四（真实操作） FileWorkspace → CommandRunner → ToolAgent → Workbench
+        │
+        ▼
+阶段五（任务与评估） TaskManager → TaskExecutor → SelfHealing → benchmark
 ```
 
 > 建议：**阶段一、二必读**（理解核心价值），**阶段三精读 critic.py**（工程精髓），阶段四按需选读。

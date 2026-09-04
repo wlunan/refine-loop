@@ -10,7 +10,7 @@ const themeStore = useThemeStore()
     <div class="header-brand">
       <div class="brand-mark">G</div>
       <span class="brand-name">Generator-Critic</span>
-      <span class="brand-tag">Workbench</span>
+      <span class="brand-tag">Code Agent</span>
     </div>
     <div class="header-actions">
       <a-button

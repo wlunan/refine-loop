@@ -16,13 +16,14 @@ sys.path.insert(
     ),
 )
 
-from src.tools.verification import CommandRunner, build_verification_tools
+from src.models.run import RunConfig, VerificationStep
+from src.tools.verification import CodeVerifier, CommandRunner, build_verification_tools
 
 
 class TestCommandRunner:
-    def test_run_success(self):
+    def test_run_args_success(self):
         runner = CommandRunner(tempfile.mkdtemp())
-        result = runner.run("echo hello")
+        result = runner.run_args([sys.executable, "-c", "print('hello')"])
         assert result.success is True
         assert result.exit_code == 0
         assert "hello" in result.stdout
@@ -74,4 +75,47 @@ class TestCommandRunner:
         runner = CommandRunner(tempfile.mkdtemp())
         tools = build_verification_tools(runner)
         names = {t.name for t in tools}
-        assert {"run_command", "run_tests", "run_lint", "run_python"} <= names
+        assert {"run_tests", "run_lint", "run_python"} <= names
+        assert "run_command" not in names
+
+
+class TestCodeVerifier:
+    def test_profile_builds_pytest_step(self):
+        config = RunConfig.from_profile(
+            "python_pytest",
+            max_rounds=3,
+            score_threshold=85,
+            round_token_budget=100,
+            total_token_budget=200,
+        )
+        assert config.verification_profile == "python_pytest"
+        assert config.verification_steps[0].id == "pytest"
+
+    def test_verify_collects_failure_evidence(self):
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "check.py"), "w", encoding="utf-8") as f:
+            f.write("import sys\nprint('verification failed')\nsys.exit(2)\n")
+        config = RunConfig.from_profile(
+            "none",
+            max_rounds=1,
+            score_threshold=85,
+            round_token_budget=100,
+            total_token_budget=200,
+        )
+        config.verification_steps = [
+            VerificationStep(
+                id="check",
+                label="检查脚本",
+                command=f'"{sys.executable}" check.py',
+                args=[sys.executable, "check.py"],
+            )
+        ]
+
+        summary = CodeVerifier(d).verify(
+            config.verification_steps,
+            config.verification_profile,
+        )
+
+        assert summary.passed is False
+        assert summary.results[0].exit_code == 2
+        assert "verification failed" in summary.evidence()

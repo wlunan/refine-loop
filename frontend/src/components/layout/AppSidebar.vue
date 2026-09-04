@@ -16,8 +16,8 @@ const selectedKeys = computed(() => {
 })
 
 const menuItems = [
-  { key: 'workbench', icon: DashboardOutlined, label: '工作台', path: '/' },
-  { key: 'tasks', icon: UnorderedListOutlined, label: '任务管理', path: '/tasks' },
+  { key: 'workbench', icon: DashboardOutlined, label: '新建任务', path: '/' },
+  { key: 'tasks', icon: UnorderedListOutlined, label: '任务中心', path: '/tasks' },
 ]
 
 function navigate(key: string) {
