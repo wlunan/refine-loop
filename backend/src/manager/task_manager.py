@@ -46,14 +46,14 @@ class TaskManager:
     def __init__(
         self,
         store: Optional[StateStore] = None,
-        on_task_event: Optional[Callable[[str, dict], None]] = None,
+        on_task_event: Optional[Callable[[dict], None]] = None,
     ):
         """
         初始化任务管理器
         
         Args:
             store: 状态存储（默认使用 .task_store 目录）
-            on_task_event: 任务事件回调，签名: (event_type, data)
+            on_task_event: 任务事件回调，签名: (trace_event)
         """
         self.store = store or StateStore()
         self.on_task_event = on_task_event
@@ -646,13 +646,14 @@ class TaskManager:
         self._emit_event(event_type, data)
     
     def _emit_event(self, event_type: str, data: dict) -> None:
-        """发送事件"""
+        """Persist and broadcast the same canonical trace event."""
         task_id = data.get("task_id")
+        event = None
         if task_id:
-            self.store.append_event(task_id, event_type, data)
-        if self.on_task_event:
+            event = self.store.append_event(task_id, event_type, data)
+        if self.on_task_event and event:
             try:
-                self.on_task_event(event_type, data)
+                self.on_task_event(event)
             except Exception as e:
                 logger.warning(f"事件回调失败: {e}")
     

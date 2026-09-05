@@ -99,11 +99,10 @@ def _broadcast_event(task_id: str, event: dict) -> None:
         loop.call_soon_threadsafe(queue.put_nowait, event)
 
 
-def _on_task_event(event_type: str, data: dict) -> None:
-    """TaskManager 事件回调 → 广播为 SSE 事件"""
-    task_id = data.get("task_id")
+def _on_task_event(event: dict) -> None:
+    """TaskManager callback → broadcast the persisted trace envelope via SSE."""
+    task_id = event.get("task_id")
     if task_id:
-        event = {"type": event_type, **data}
         _broadcast_event(task_id, event)
 
 
@@ -384,6 +383,19 @@ async def get_timeline(task_id: str, limit: int = 200):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return task_manager.store.list_events(task_id, limit=max(1, min(limit, 500)))
+
+
+@router.get("/{task_id}/artifacts/{artifact_id}")
+async def get_trace_artifact(task_id: str, artifact_id: str):
+    """Return the complete payload referenced by a persisted trace event."""
+    try:
+        task_manager.get_task(task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    artifact = task_manager.store.read_artifact(task_id, artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="trace artifact 不存在")
+    return artifact
 
 
 @router.get("/{task_id}/events")

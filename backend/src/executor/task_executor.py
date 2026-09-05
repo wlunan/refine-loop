@@ -289,6 +289,24 @@ class TaskExecutor:
             "score": critique.score,
             "tokens_used": round_tokens,
             "draft_preview": draft[:200] + "..." if len(draft) > 200 else draft,
+            # Full model content is kept as trace artifacts rather than added
+            # to the append-only event stream or the SSE payload.
+            "artifacts": [
+                {
+                    "kind": "generator_output",
+                    "content": draft,
+                },
+                {
+                    "kind": "critic_review",
+                    "content": {
+                        "score": critique.score,
+                        "acceptable": critique.acceptable,
+                        "issues": list(critique.issues),
+                        "suggestions": list(critique.suggestions),
+                        "summary": critique.summary,
+                    },
+                },
+            ],
         })
 
     def _on_verification_complete(
@@ -305,7 +323,13 @@ class TaskExecutor:
             "round": round_num,
             "passed": summary.passed,
             "profile": summary.profile,
-            "results": [result.model_dump() for result in summary.results],
+            "result_count": len(summary.results),
+            "artifacts": [
+                {
+                    "kind": "verification_results",
+                    "content": [result.model_dump() for result in summary.results],
+                },
+            ],
         })
     
     def _on_generator_event(
@@ -318,19 +342,30 @@ class TaskExecutor:
         event_type = event.get("type", "unknown")
         
         if event_type == "tool_call":
-            tool_name = event.get("tool_name", "")
-            tool_input = event.get("input", {})
+            tool_name = event.get("tool", event.get("tool_name", ""))
+            tool_input = event.get("arguments", event.get("input", {})) or {}
             self._emit_progress("file_operation", {
                 "subtask_id": subtask_id,
                 "operation": tool_name,
                 "path": tool_input.get("path", ""),
                 "round": event.get("round", 0),
+                "artifacts": [{
+                    "kind": "tool_arguments",
+                    "content": tool_input,
+                }],
             })
         elif event_type == "tool_result":
+            tool_name = event.get("tool", event.get("tool_name", ""))
+            result = event.get("result", "")
             self._emit_progress("file_result", {
                 "subtask_id": subtask_id,
-                "result": event.get("result", "")[:200],
+                "operation": tool_name,
+                "result_preview": result[:200],
                 "round": event.get("round", 0),
+                "artifacts": [{
+                    "kind": "tool_result",
+                    "content": result,
+                }],
             })
     
     def _emit_progress(self, event_type: str, data: dict) -> None:

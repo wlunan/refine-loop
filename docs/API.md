@@ -141,6 +141,14 @@
 | `subtask_completed` / `subtask_failed` | 子任务标识，完成时还有 `score`、`iterations`、`tokens_used`；失败时有 `error`。 |
 | `task_completed` / `task_failed` / `task_cancelled` | `task_id`、`status` 或 `error`。 |
 
+### `GET /api/tasks/{task_id}/timeline`
+
+返回与 SSE 完全相同的可回放 Trace 事件。每项包含 `id`、`type`、`category`（`llm` / `tool` / `verification` / `decision`）、`summary`、任务/子任务/轮次上下文、轻量 `data` 以及 artifact 引用。
+
+### `GET /api/tasks/{task_id}/artifacts/{artifact_id}`
+
+按 Trace 事件中的 artifact 引用读取完整内容。生成草稿、Critic 审查、工具完整入参/结果和验证详情均保存为 artifact，避免将大文本重复放入 SSE 或 JSONL 事件流。
+
 ## 3. 工作台 SSE 协议
 
 响应头为 `Content-Type: text/event-stream`，每帧格式为 `data: <JSON>\n\n`。文本和文件模式均会发送：

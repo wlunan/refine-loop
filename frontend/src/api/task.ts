@@ -132,4 +132,10 @@ export const taskApi = {
     if (!response.ok) throw new Error('获取任务时间线失败')
     return response.json()
   },
+
+  async getTraceArtifact(taskId: string, artifactId: string) {
+    const response = await fetch(`${API_BASE}/tasks/${taskId}/artifacts/${artifactId}`)
+    if (!response.ok) throw new Error('获取 Trace 内容失败')
+    return response.json()
+  },
 }

@@ -326,3 +326,32 @@ class TestOrchestrator:
             1: 120,
             2: 80,
         }
+
+    def test_task_executor_emits_full_tool_payloads_as_trace_artifacts(self, tmp_path):
+        """Tool events keep their complete arguments/results outside the preview."""
+        events = []
+        executor = TaskExecutor(
+            workspace=FileWorkspace(str(tmp_path)),
+            on_progress=lambda event_type, data: events.append((event_type, data)),
+        )
+
+        executor._on_generator_event(
+            "trace_task",
+            "subtask_1",
+            {"type": "tool_call", "tool": "write_file", "arguments": {"path": "app.py", "content": "value = 2"}},
+        )
+        executor._on_generator_event(
+            "trace_task",
+            "subtask_1",
+            {"type": "tool_result", "tool": "write_file", "result": "file written"},
+        )
+
+        assert events[0][0] == "file_operation"
+        assert events[0][1]["operation"] == "write_file"
+        assert events[0][1]["artifacts"][0]["content"] == {
+            "path": "app.py",
+            "content": "value = 2",
+        }
+        assert events[1][0] == "file_result"
+        assert events[1][1]["result_preview"] == "file written"
+        assert events[1][1]["artifacts"][0]["content"] == "file written"

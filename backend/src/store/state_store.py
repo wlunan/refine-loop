@@ -8,10 +8,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.models.task import (
     Checkpoint,
@@ -45,11 +47,13 @@ class StateStore:
         self.tasks_dir = self.storage_dir / "tasks"
         self.checkpoints_dir = self.storage_dir / "checkpoints"
         self.events_dir = self.storage_dir / "events"
+        self.artifacts_dir = self.storage_dir / "artifacts"
         
         # 创建目录
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self.events_dir.mkdir(parents=True, exist_ok=True)
+        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         
         logger.info(f"StateStore 初始化完成: {self.storage_dir}")
 
@@ -64,6 +68,10 @@ class StateStore:
     def _event_path(self, task_id: str) -> Path:
         """Return the append-only event timeline file for one task."""
         return self.events_dir / f"{task_id}.jsonl"
+
+    def _artifact_dir(self, task_id: str) -> Path:
+        """Return the directory that holds full trace payloads for one task."""
+        return self.artifacts_dir / task_id
 
     # ------------------------------------------------------------------
     # 任务操作
@@ -132,6 +140,10 @@ class StateStore:
             deleted = True
         if event_path.exists():
             event_path.unlink()
+            deleted = True
+        artifact_dir = self._artifact_dir(task_id)
+        if artifact_dir.exists():
+            shutil.rmtree(artifact_dir)
             deleted = True
         if deleted:
             logger.info(f"任务及其持久化证据已删除: {task_id}")
@@ -264,11 +276,21 @@ class StateStore:
         checkpoints.sort(key=lambda cp: cp.created_at, reverse=True)
         return checkpoints
 
-    def append_event(self, task_id: str, event_type: str, data: dict) -> None:
-        """Persist one task event without coupling timeline storage to SSE clients."""
+    def append_event(self, task_id: str, event_type: str, data: dict) -> dict:
+        """Persist one canonical trace event and return the SSE-ready envelope."""
+        artifacts = data.get("artifacts", [])
+        event_data = {key: value for key, value in data.items() if key != "artifacts"}
+        event_id = uuid.uuid4().hex
         event = {
+            "id": event_id,
             "type": event_type,
-            "data": data,
+            "category": self._event_category(event_type),
+            "task_id": task_id,
+            "subtask_id": event_data.get("subtask_id"),
+            "round": event_data.get("round"),
+            "summary": self._event_summary(event_type, event_data),
+            "data": event_data,
+            "artifacts": self._save_artifacts(task_id, event_id, artifacts),
             "created_at": datetime.now().isoformat(),
         }
         try:
@@ -276,6 +298,90 @@ class StateStore:
                 f.write(json.dumps(event, ensure_ascii=False) + "\n")
         except Exception as e:
             logger.warning(f"保存任务事件失败: {task_id}, {e}")
+        return event
+
+    @staticmethod
+    def _event_category(event_type: str) -> str:
+        if event_type in {"file_operation", "file_result"}:
+            return "tool"
+        if event_type == "verification_completed":
+            return "verification"
+        if event_type == "subtask_progress":
+            return "llm"
+        return "decision"
+
+    @staticmethod
+    def _event_summary(event_type: str, data: dict) -> str:
+        summaries = {
+            "subtask_progress": f"完成第 {data.get('round', '?')} 轮生成与审查",
+            "file_operation": f"调用工具 {data.get('operation', 'unknown')}",
+            "file_result": f"工具 {data.get('operation', 'unknown')} 返回结果",
+            "verification_completed": "完成确定性验证",
+            "subtask_started": f"开始子任务 {data.get('title', data.get('subtask_id', ''))}",
+            "subtask_completed": "子任务完成",
+            "subtask_failed": "子任务失败",
+            "task_started": "开始执行任务",
+            "task_completed": "任务完成",
+            "task_failed": "任务失败",
+            "task_cancelled": "任务已取消",
+            "task_paused": "任务已暂停",
+        }
+        return summaries.get(event_type, event_type)
+
+    def _save_artifacts(
+        self,
+        task_id: str,
+        event_id: str,
+        artifacts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Store large trace payloads outside the JSONL event stream."""
+        references: list[dict[str, Any]] = []
+        for index, artifact in enumerate(artifacts):
+            content = artifact.get("content")
+            if content is None:
+                continue
+            artifact_id = f"{event_id}_{index}"
+            is_json = not isinstance(content, str)
+            suffix = ".json" if is_json else ".txt"
+            path = self._artifact_dir(task_id) / f"{artifact_id}{suffix}"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                if is_json:
+                    serialized = json.dumps(content, ensure_ascii=False, indent=2)
+                    path.write_text(serialized, encoding="utf-8")
+                    content_type = "application/json"
+                else:
+                    path.write_text(content, encoding="utf-8")
+                    content_type = "text/plain"
+                references.append({
+                    "id": artifact_id,
+                    "kind": artifact.get("kind", "artifact"),
+                    "content_type": artifact.get("content_type", content_type),
+                    "size": path.stat().st_size,
+                })
+            except OSError as e:
+                logger.warning(f"保存 trace artifact 失败: {task_id}/{artifact_id}, {e}")
+        return references
+
+    def read_artifact(self, task_id: str, artifact_id: str) -> Optional[dict[str, Any]]:
+        """Load one artifact by its opaque id without exposing filesystem paths."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", artifact_id):
+            return None
+        matches = list(self._artifact_dir(task_id).glob(f"{artifact_id}.*"))
+        if len(matches) != 1:
+            return None
+        path = matches[0]
+        try:
+            content = path.read_text(encoding="utf-8")
+            content_type = "application/json" if path.suffix == ".json" else "text/plain"
+            return {
+                "id": artifact_id,
+                "content_type": content_type,
+                "content": json.loads(content) if content_type == "application/json" else content,
+            }
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(f"读取 trace artifact 失败: {task_id}/{artifact_id}, {e}")
+            return None
 
     def list_events(self, task_id: str, limit: int = 200) -> List[dict]:
         """Read a bounded chronological event timeline, skipping malformed lines."""

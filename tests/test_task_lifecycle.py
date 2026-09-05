@@ -253,6 +253,42 @@ def test_task_events_survive_a_new_store_instance(tmp_path):
     assert events[0]["created_at"]
 
 
+def test_trace_event_stores_large_payloads_as_artifacts(tmp_path):
+    store = StateStore(str(tmp_path / "state"))
+
+    event = store.append_event(
+        "trace_task",
+        "subtask_progress",
+        {
+            "task_id": "trace_task",
+            "subtask_id": "subtask_1",
+            "round": 1,
+            "score": 92,
+            "artifacts": [
+                {"kind": "generator_output", "content": "full generated draft"},
+                {"kind": "critic_review", "content": {"issues": [], "summary": "ready"}},
+            ],
+        },
+    )
+
+    assert event["category"] == "llm"
+    assert event["summary"] == "完成第 1 轮生成与审查"
+    assert "artifacts" not in event["data"]
+    assert [artifact["kind"] for artifact in event["artifacts"]] == [
+        "generator_output",
+        "critic_review",
+    ]
+
+    persisted_event = store.list_events("trace_task")[0]
+    assert persisted_event["id"] == event["id"]
+    artifact = store.read_artifact("trace_task", event["artifacts"][1]["id"])
+    assert artifact == {
+        "id": event["artifacts"][1]["id"],
+        "content_type": "application/json",
+        "content": {"issues": [], "summary": "ready"},
+    }
+
+
 def test_delete_task_removes_record_checkpoints_and_timeline(tmp_path):
     store = StateStore(str(tmp_path / "state"))
     task = Task(

@@ -59,9 +59,23 @@ export interface TaskProgress {
   message: string
 }
 
-export interface TaskTimelineEvent {
+export interface TaskArtifactRef {
+  id: string
+  kind: string
+  content_type: string
+  size: number
+}
+
+export interface TaskTraceEvent {
+  id?: string
   type: string
+  category?: 'llm' | 'tool' | 'verification' | 'decision'
+  task_id?: string
+  subtask_id?: string | null
+  round?: number | null
+  summary?: string
   data: Record<string, unknown>
+  artifacts?: TaskArtifactRef[]
   created_at: string
 }
 
@@ -77,7 +91,7 @@ export const useTaskStore = defineStore('task', () => {
   const currentTask = ref<Task | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const timeline = ref<TaskTimelineEvent[]>([])
+  const timeline = ref<TaskTraceEvent[]>([])
   const verificationDetection = ref<VerificationDetection | null>(null)
 
   const runningTasks = computed(() =>
@@ -125,12 +139,9 @@ export const useTaskStore = defineStore('task', () => {
     return verificationDetection.value
   }
 
-  function appendTimelineEvent(event: { type: string; [key: string]: unknown }) {
-    timeline.value.push({
-      type: event.type,
-      data: { ...event },
-      created_at: new Date().toISOString(),
-    })
+  function appendTimelineEvent(event: TaskTraceEvent) {
+    if (event.id && timeline.value.some((item) => item.id === event.id)) return
+    timeline.value.push(event)
   }
 
   async function createTask(
