@@ -497,6 +497,12 @@ class TaskManager:
                 if latest_task.status != TaskStatus.RUNNING:
                     task = latest_task
                     break
+
+                # Progress callbacks may have persisted token usage while this
+                # worker was executing. Continue from that newest record so
+                # the stale in-memory task cannot overwrite the accumulated
+                # total when the completed subtask is saved below.
+                task = latest_task
                 
                 # 更新子任务状态
                 for i, st in enumerate(task.plan.subtasks):

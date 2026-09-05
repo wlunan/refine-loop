@@ -46,6 +46,35 @@ class FailingExecutor:
         return subtask
 
 
+class UsageRecordingExecutor:
+    """Records round usage while the manager still holds an older task copy."""
+
+    def __init__(self, store, on_progress):
+        self.store = store
+        self.on_progress = on_progress
+
+    def execute(self, subtask, context, task_id):
+        for round_num, tokens_used in ((1, 120), (2, 80)):
+            self.store.save_checkpoint(
+                Checkpoint(
+                    task_id=task_id,
+                    subtask_id=subtask.id,
+                    round=round_num,
+                    tokens_used=tokens_used,
+                )
+            )
+            self.on_progress(
+                "subtask_progress",
+                {
+                    "subtask_id": subtask.id,
+                    "round": round_num,
+                    "tokens_used": tokens_used,
+                },
+            )
+        subtask.mark_completed("usage recorded", 100)
+        return subtask
+
+
 def test_pause_preserves_persisted_checkpoint_state(tmp_path):
     git(["init", "-q"], tmp_path)
     git(["config", "user.email", "test@example.com"], tmp_path)
@@ -168,6 +197,47 @@ def test_round_progress_persists_token_usage_before_subtask_completion(tmp_path)
     assert persisted.total_tokens == 200
     events = store.list_events(task.id)
     assert [event["data"]["tokens_used"] for event in events] == [120, 80]
+
+
+def test_task_total_tokens_matches_persisted_usage_ledger_after_subtask_save(tmp_path):
+    """Saving a completed subtask must not overwrite per-round usage totals."""
+    git(["init", "-q"], tmp_path)
+    git(["config", "user.email", "test@example.com"], tmp_path)
+    git(["config", "user.name", "Test User"], tmp_path)
+    (tmp_path / "app.py").write_text("value = 1\n", encoding="utf-8")
+    git(["add", "app.py"], tmp_path)
+    git(["commit", "-qm", "initial"], tmp_path)
+
+    store = StateStore(str(tmp_path / "state"))
+    manager = TaskManager(store=store)
+    task = Task(
+        id="usage_ledger_task",
+        title="usage ledger",
+        description="usage ledger",
+        workspace_dir=str(tmp_path),
+        status=TaskStatus.RUNNING,
+        plan=TaskPlan(
+            requirement="usage ledger",
+            subtasks=[SubTask(id="subtask_1", title="change", description="change")],
+        ),
+    )
+    task.execution_workspace_dir = GitWorkspace(task.id, task.workspace_dir).create()
+    store.save_task(task)
+    executor = UsageRecordingExecutor(
+        store,
+        lambda event_type, data: manager._on_executor_progress(task.id, event_type, data),
+    )
+    manager._executors[task.id] = executor
+
+    manager._execute_task(task.id, executor, None, None)
+
+    persisted = manager.get_task(task.id)
+    usage_ledger_total = sum(
+        checkpoint.tokens_used
+        for checkpoint in store.list_checkpoints(task.id)
+    )
+    assert usage_ledger_total == 200
+    assert persisted.total_tokens == usage_ledger_total
 
 
 def test_task_events_survive_a_new_store_instance(tmp_path):
