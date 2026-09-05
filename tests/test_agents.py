@@ -14,7 +14,7 @@ import pytest
 
 from src.agents.critic import CriticAgent
 from src.agents.generator import GeneratorAgent
-from src.models.schemas import CritiqueResult
+from src.models.schemas import AgentRole, CritiqueResult
 
 
 class TestGeneratorAgent:
@@ -51,6 +51,20 @@ class TestGeneratorAgent:
         generator = GeneratorAgent.__new__(GeneratorAgent)
         result = generator._extract_final_output("")
         assert result == ""
+
+    def test_usage_falls_back_to_openai_compatible_response_metadata(self):
+        generator = GeneratorAgent.__new__(GeneratorAgent)
+        generator.total_tokens_used = 0
+        generator.role = AgentRole.GENERATOR
+        response = MagicMock()
+        response.usage_metadata = None
+        response.response_metadata = {
+            "token_usage": {"prompt_tokens": 12, "completion_tokens": 8}
+        }
+
+        generator._accumulate_usage(generator._response_usage(response))
+
+        assert generator.total_tokens_used == 20
 
 
 class TestCriticAgent:

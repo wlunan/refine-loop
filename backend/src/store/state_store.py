@@ -170,9 +170,9 @@ class StateStore:
         checkpoint_dir = self._checkpoint_dir(checkpoint.task_id)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
-        # 使用时间戳命名，保留历史检查点
-        timestamp = checkpoint.created_at.strftime("%Y%m%d_%H%M%S")
-        filename = f"{checkpoint.subtask_id}_{timestamp}.json"
+        # Round number and microseconds avoid overwriting two fast callbacks.
+        timestamp = checkpoint.created_at.strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"{checkpoint.subtask_id}_round_{checkpoint.round}_{timestamp}.json"
         path = checkpoint_dir / filename
         
         try:

@@ -17,7 +17,7 @@ function handleEvent(data: any) { taskStore.appendTimelineEvent(data); const ts 
   case 'task_planning': logs.value.push('['+ts+'] 正在分析需求...'); break
   case 'task_planned': logs.value.push('['+ts+'] 任务分解完成: '+data.subtask_count+' 个子任务'); break
   case 'subtask_started': logs.value.push('['+ts+'] 子任务开始: '+data.title); break
-  case 'subtask_progress': logs.value.push('['+ts+'] 第 '+data.round+' 轮完成，评分: '+data.score); break
+  case 'subtask_progress': logs.value.push('['+ts+'] 第 '+data.round+' 轮完成，评分: '+data.score+'，Token: '+(data.tokens_used||0)); if(taskStore.currentTask && typeof data.task_total_tokens==='number') taskStore.currentTask.total_tokens=data.task_total_tokens; break
   case 'verification_completed': logs.value.push('['+ts+'] 第 '+data.round+' 轮 '+(data.passed ? '确定性验证通过' : '确定性验证未通过')); break
   case 'file_operation': { const op=data.operation||''; const p=data.path||''; if(op.includes('write')||op.includes('create')) logs.value.push('['+ts+'] 写入文件: '+p); else if(op.includes('read')) logs.value.push('['+ts+'] 读取文件: '+p); else logs.value.push('['+ts+'] 文件操作: '+op+' '+p); break }
   case 'file_result': if(data.result) logs.value.push('['+ts+'] 操作完成: '+data.result); break

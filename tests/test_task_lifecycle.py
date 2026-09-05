@@ -141,6 +141,35 @@ def test_failed_subtask_persists_task_failure_before_worker_cleanup(tmp_path):
     assert persisted.error == "子任务失败: verification command is unavailable"
 
 
+def test_round_progress_persists_token_usage_before_subtask_completion(tmp_path):
+    store = StateStore(str(tmp_path / "state"))
+    manager = TaskManager(store=store)
+    task = Task(
+        id="token_task",
+        title="tokens",
+        description="tokens",
+        workspace_dir=str(tmp_path),
+        status=TaskStatus.RUNNING,
+    )
+    store.save_task(task)
+
+    manager._on_executor_progress(
+        task.id,
+        "subtask_progress",
+        {"subtask_id": "subtask_1", "round": 1, "tokens_used": 120},
+    )
+    manager._on_executor_progress(
+        task.id,
+        "subtask_progress",
+        {"subtask_id": "subtask_1", "round": 2, "tokens_used": 80},
+    )
+
+    persisted = manager.get_task(task.id)
+    assert persisted.total_tokens == 200
+    events = store.list_events(task.id)
+    assert [event["data"]["tokens_used"] for event in events] == [120, 80]
+
+
 def test_task_events_survive_a_new_store_instance(tmp_path):
     store = StateStore(str(tmp_path / "state"))
     store.append_event("task_events", "subtask_started", {"task_id": "task_events", "title": "change"})

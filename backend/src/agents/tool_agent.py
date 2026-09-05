@@ -102,7 +102,11 @@ class ToolAgent:
 
             # 累计 token
             if self.usage_callback:
-                self.usage_callback(getattr(response, "usage_metadata", None))
+                usage = getattr(response, "usage_metadata", None)
+                if not usage:
+                    metadata = getattr(response, "response_metadata", None) or {}
+                    usage = metadata.get("token_usage") or metadata.get("usage")
+                self.usage_callback(usage)
 
             tool_calls = getattr(response, "tool_calls", None) or []
             content = (response.content or "").strip()

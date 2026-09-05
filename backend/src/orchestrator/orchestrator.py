@@ -153,6 +153,11 @@ class Orchestrator:
         """当前累计 token 消耗（Generator + Critic）"""
         return self.generator.total_tokens_used + self.critic.total_tokens_used
 
+    @property
+    def total_tokens_used(self) -> int:
+        """Expose the current run total for execution-level persistence."""
+        return self._current_total_tokens()
+
     def _exceeds_total_budget(self) -> bool:
         """是否已超过总 token 预算"""
         if self.total_token_budget <= 0:

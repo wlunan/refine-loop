@@ -129,9 +129,7 @@ class BaseAgent(ABC):
             response = self.llm.invoke(messages, **kwargs)
 
             # 统计 token 使用量
-            self._accumulate_usage(
-                getattr(response, "usage_metadata", None)
-            )
+            self._accumulate_usage(self._response_usage(response))
 
             content = response.content
             duration = time.time() - start_time
@@ -181,9 +179,7 @@ class BaseAgent(ABC):
             )
             for chunk in self.llm.stream(messages, **kwargs):
                 # 统计 token：多数模型在最后一个 chunk 才返回 usage_metadata
-                self._accumulate_usage(
-                    getattr(chunk, "usage_metadata", None)
-                )
+                self._accumulate_usage(self._response_usage(chunk))
                 piece = chunk.content if hasattr(chunk, "content") else str(chunk)
                 if piece:
                     yield piece
@@ -265,12 +261,26 @@ class BaseAgent(ABC):
             return
         tokens = usage.get("total_tokens", 0)
         if not tokens:
+            tokens = (
+                usage.get("input_tokens", usage.get("prompt_tokens", 0))
+                + usage.get("output_tokens", usage.get("completion_tokens", 0))
+            )
+        if not tokens:
             return
         self.total_tokens_used += tokens
         logger.debug(
             f"[{self.role.value}] 本轮 token: {tokens}, "
             f"累计: {self.total_tokens_used}"
         )
+
+    @staticmethod
+    def _response_usage(response: Any) -> Optional[dict]:
+        """Normalize usage returned by OpenAI-compatible model providers."""
+        usage = getattr(response, "usage_metadata", None)
+        if usage:
+            return usage
+        metadata = getattr(response, "response_metadata", None) or {}
+        return metadata.get("token_usage") or metadata.get("usage")
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:

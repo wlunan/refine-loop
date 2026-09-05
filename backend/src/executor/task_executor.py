@@ -118,6 +118,10 @@ class TaskExecutor:
         # 当前执行的 Orchestrator
         self._current_orchestrator: Optional[Orchestrator] = None
         self._round_verifications: Dict[tuple[str, str, int], VerificationSummary] = {}
+        # The agents can be shared by injected test/custom executors, so use a
+        # per-subtask baseline to persist each round's delta accurately.
+        self._round_token_totals: Dict[tuple[str, str], int] = {}
+        self._subtask_token_totals: Dict[tuple[str, str], int] = {}
     
     def stop(self) -> None:
         """请求停止执行"""
@@ -170,6 +174,8 @@ class TaskExecutor:
                 ),
             )
             self._current_orchestrator = orchestrator
+            self._round_token_totals[(task_id, subtask.id)] = orchestrator.total_tokens_used
+            self._subtask_token_totals[(task_id, subtask.id)] = 0
             
             # 3. 根据模式执行
             if self.use_file_mode:
@@ -199,8 +205,8 @@ class TaskExecutor:
                 score=result.state.critique.score if result.state.critique else 0,
             )
 
-            # 记录本次执行消耗的 token（每次执行新建 Orchestrator，token 统计独立）
-            tokens_used = result.state.total_tokens
+            # 轮次回调已将增量持久化；这里仅用于子任务完成事件展示。
+            tokens_used = self._subtask_token_totals[(task_id, subtask.id)]
             
             # 发送完成事件（附带 token 消耗）
             self._emit_progress("subtask_completed", {
@@ -227,6 +233,8 @@ class TaskExecutor:
         
         finally:
             self._current_orchestrator = None
+            self._round_token_totals.pop((task_id, subtask.id), None)
+            self._subtask_token_totals.pop((task_id, subtask.id), None)
         
         return subtask
     
@@ -239,26 +247,29 @@ class TaskExecutor:
         critique,
     ) -> None:
         """每轮完成的回调"""
-        # 发送进度事件
-        self._emit_progress("subtask_progress", {
-            "subtask_id": subtask_id,
-            "round": round_num,
-            "score": critique.score,
-            "draft_preview": draft[:200] + "..." if len(draft) > 200 else draft,
-        })
-        
+        key = (task_id, subtask_id)
+        current_total = (
+            self._current_orchestrator.total_tokens_used
+            if self._current_orchestrator else 0
+        )
+        previous_total = self._round_token_totals.get(key, 0)
+        round_tokens = max(0, current_total - previous_total)
+        self._round_token_totals[key] = current_total
+        self._subtask_token_totals[key] = self._subtask_token_totals.get(key, 0) + round_tokens
+
         verification_summary = self._round_verifications.pop(
             (task_id, subtask_id, round_num),
             None,
         )
 
-        # 保存检查点（含本轮审查信息，供前端展示每轮内容）
+        # Checkpoints are the durable source for per-round token usage.
         if self.store:
             checkpoint = Checkpoint(
                 task_id=task_id,
                 subtask_id=subtask_id,
                 round=round_num,
                 draft=draft,
+                tokens_used=round_tokens,
                 score=critique.score if critique else None,
                 acceptable=critique.acceptable if critique else None,
                 issues=list(critique.issues) if critique else [],
@@ -270,6 +281,15 @@ class TaskExecutor:
                 self.store.save_checkpoint(checkpoint)
             except Exception as e:
                 logger.warning(f"保存检查点失败: {e}")
+
+        # 发送进度事件
+        self._emit_progress("subtask_progress", {
+            "subtask_id": subtask_id,
+            "round": round_num,
+            "score": critique.score,
+            "tokens_used": round_tokens,
+            "draft_preview": draft[:200] + "..." if len(draft) > 200 else draft,
+        })
 
     def _on_verification_complete(
         self,

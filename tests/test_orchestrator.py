@@ -305,3 +305,24 @@ class TestOrchestrator:
         assert len(checkpoints) == 1
         assert checkpoints[0].verification_summary is not None
         assert checkpoints[0].verification_summary.passed is False
+
+    def test_task_executor_persists_per_round_token_delta(self, tmp_path):
+        """Round checkpoints contain a delta instead of an always-zero placeholder."""
+        class TokenCounter:
+            total_tokens_used = 120
+
+        workspace = FileWorkspace(str(tmp_path))
+        store = StateStore(str(tmp_path / "state"))
+        executor = TaskExecutor(workspace=workspace, store=store)
+        executor._current_orchestrator = TokenCounter()
+        critique = CritiqueResult(score=80, issues=[], acceptable=False)
+
+        executor._on_round_complete("token_task", "subtask_1", 1, "first", critique)
+        executor._current_orchestrator.total_tokens_used = 200
+        executor._on_round_complete("token_task", "subtask_1", 2, "second", critique)
+
+        checkpoints = store.list_checkpoints("token_task", "subtask_1")
+        assert {checkpoint.round: checkpoint.tokens_used for checkpoint in checkpoints} == {
+            1: 120,
+            2: 80,
+        }

@@ -598,14 +598,15 @@ class TaskManager:
         data: dict,
     ) -> None:
         """执行器进度回调：累加 token 消耗并转发事件"""
-        # 子任务完成时，把本次执行的 token 消耗累加到任务
-        if event_type == "subtask_completed":
+        # Persist every completed round so failures and restarts retain usage.
+        if event_type == "subtask_progress":
             tokens_used = data.get("tokens_used", 0)
             if tokens_used:
                 try:
                     task = self._load_task(task_id)
                     task.total_tokens += tokens_used
                     self.store.save_task(task)
+                    data["task_total_tokens"] = task.total_tokens
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"累加 token 消耗失败: {task_id}, {e}")
 
