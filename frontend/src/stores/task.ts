@@ -58,11 +58,18 @@ export interface TaskProgress {
   message: string
 }
 
+export interface TaskTimelineEvent {
+  type: string
+  data: Record<string, unknown>
+  created_at: string
+}
+
 export const useTaskStore = defineStore('task', () => {
   const tasks = ref<TaskSummary[]>([])
   const currentTask = ref<Task | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const timeline = ref<TaskTimelineEvent[]>([])
 
   const runningTasks = computed(() =>
     tasks.value.filter((t) => t.status === 'running')
@@ -94,6 +101,22 @@ export const useTaskStore = defineStore('task', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  async function fetchTimeline(id: string) {
+    try {
+      timeline.value = await taskApi.getTimeline(id)
+    } catch (e: any) {
+      error.value = e.message
+    }
+  }
+
+  function appendTimelineEvent(event: { type: string; [key: string]: unknown }) {
+    timeline.value.push({
+      type: event.type,
+      data: { ...event },
+      created_at: new Date().toISOString(),
+    })
   }
 
   async function createTask(
@@ -189,10 +212,13 @@ export const useTaskStore = defineStore('task', () => {
     currentTask,
     loading,
     error,
+    timeline,
     runningTasks,
     completedTasks,
     fetchTasks,
     fetchTask,
+    fetchTimeline,
+    appendTimelineEvent,
     createTask,
     startTask,
     pauseTask,

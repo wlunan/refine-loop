@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -28,6 +29,7 @@ class StrategyResult:
     exit_code: int
     rounds: int = 1
     detail: str = ""
+    duration_seconds: float = 0.0
 
 
 @dataclass
@@ -56,6 +58,7 @@ def evaluate_baseline(task: dict, generator: Optional[GeneratorAgent] = None) ->
 
     对应「一次 LLM 调用出结果」的传统做法，作为对比基线。
     """
+    started_at = time.monotonic()
     workspace = tempfile.mkdtemp(prefix=f"bench_{task['name']}_base_")
     _write_test(workspace, task)
 
@@ -72,6 +75,7 @@ def evaluate_baseline(task: dict, generator: Optional[GeneratorAgent] = None) ->
         exit_code=result.exit_code,
         rounds=1,
         detail=result.to_str(),
+        duration_seconds=time.monotonic() - started_at,
     )
 
 
@@ -83,6 +87,7 @@ def evaluate_self_healing(
     """
     自愈闭环：生成 → 验证 → 失败定位 → 修复 → 复跑，直到测试通过或达到上限。
     """
+    started_at = time.monotonic()
     workspace = tempfile.mkdtemp(prefix=f"bench_{task['name']}_heal_")
     _write_test(workspace, task)
 
@@ -101,15 +106,20 @@ def evaluate_self_healing(
         exit_code=final.exit_code if final else -1,
         rounds=result.repair_rounds,
         detail=final.to_str() if final else "",
+        duration_seconds=time.monotonic() - started_at,
     )
 
 
-def run_all(tasks: List[dict], generator: Optional[GeneratorAgent] = None) -> List[TaskResult]:
+def run_all(
+    tasks: List[dict],
+    generator: Optional[GeneratorAgent] = None,
+    max_repair_rounds: int = 3,
+) -> List[TaskResult]:
     """依次评测所有任务，返回结果列表（generator 复用以避免重复初始化 LLM）"""
     gen = generator or GeneratorAgent(domain="code")
     results: List[TaskResult] = []
     for task in tasks:
         baseline = evaluate_baseline(task, gen)
-        healing = evaluate_self_healing(task, gen)
+        healing = evaluate_self_healing(task, gen, max_repair_rounds=max_repair_rounds)
         results.append(TaskResult(task["name"], baseline, healing))
     return results

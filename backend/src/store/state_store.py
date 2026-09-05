@@ -43,10 +43,12 @@ class StateStore:
         self.storage_dir = Path(storage_dir)
         self.tasks_dir = self.storage_dir / "tasks"
         self.checkpoints_dir = self.storage_dir / "checkpoints"
+        self.events_dir = self.storage_dir / "events"
         
         # 创建目录
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        self.events_dir.mkdir(parents=True, exist_ok=True)
         
         logger.info(f"StateStore 初始化完成: {self.storage_dir}")
 
@@ -57,6 +59,10 @@ class StateStore:
     def _checkpoint_dir(self, task_id: str) -> Path:
         """获取检查点目录"""
         return self.checkpoints_dir / task_id
+
+    def _event_path(self, task_id: str) -> Path:
+        """Return the append-only event timeline file for one task."""
+        return self.events_dir / f"{task_id}.jsonl"
 
     # ------------------------------------------------------------------
     # 任务操作
@@ -245,6 +251,40 @@ class StateStore:
         
         checkpoints.sort(key=lambda cp: cp.created_at, reverse=True)
         return checkpoints
+
+    def append_event(self, task_id: str, event_type: str, data: dict) -> None:
+        """Persist one task event without coupling timeline storage to SSE clients."""
+        event = {
+            "type": event_type,
+            "data": data,
+            "created_at": datetime.now().isoformat(),
+        }
+        try:
+            with open(self._event_path(task_id), "a", encoding="utf-8") as f:
+                f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.warning(f"保存任务事件失败: {task_id}, {e}")
+
+    def list_events(self, task_id: str, limit: int = 200) -> List[dict]:
+        """Read a bounded chronological event timeline, skipping malformed lines."""
+        path = self._event_path(task_id)
+        if not path.exists():
+            return []
+
+        events: List[dict] = []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        logger.warning(f"跳过损坏的任务事件: {task_id}")
+        except OSError as e:
+            logger.warning(f"读取任务事件失败: {task_id}, {e}")
+            return []
+        return events[-limit:]
 
     def clear_checkpoints(self, task_id: str) -> int:
         """

@@ -12,6 +12,8 @@ ground truth 单元测试**（而非 Critic 的主观评分）：Agent 生成实
 - test_code:   ground truth 测试代码（评测器写入 workspace 后运行）
 """
 
+BENCHMARK_VERSION = "2026.09.04.v1"
+
 TASKS = [
     {
         "name": "lru_cache",

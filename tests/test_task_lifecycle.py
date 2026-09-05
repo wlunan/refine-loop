@@ -98,3 +98,16 @@ def test_manager_recovers_interrupted_task_to_resumable_state(tmp_path):
     assert recovered.status == TaskStatus.PAUSED
     assert recovered.current_subtask_id is None
     assert recovered.plan.subtasks[0].status == TaskStatus.PENDING
+
+
+def test_task_events_survive_a_new_store_instance(tmp_path):
+    store = StateStore(str(tmp_path / "state"))
+    store.append_event("task_events", "subtask_started", {"task_id": "task_events", "title": "change"})
+    store.append_event("task_events", "verification_completed", {"task_id": "task_events", "passed": True})
+
+    recovered_store = StateStore(str(tmp_path / "state"))
+    events = recovered_store.list_events("task_events")
+
+    assert [event["type"] for event in events] == ["subtask_started", "verification_completed"]
+    assert events[1]["data"]["passed"] is True
+    assert events[0]["created_at"]

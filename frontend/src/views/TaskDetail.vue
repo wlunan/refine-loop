@@ -9,10 +9,10 @@ import SubTaskList from '../components/task/SubTaskList.vue'
 import TaskProgress from '../components/task/TaskProgress.vue'
 const route = useRoute(); const router = useRouter(); const taskStore = useTaskStore(); const { connect, disconnect } = useSSE()
 const taskId = route.params.id as string; const logs = ref<string[]>([])
-onMounted(async () => { await taskStore.fetchTask(taskId); if (taskStore.currentTask?.status === 'running') startSSE() })
+onMounted(async () => { await Promise.all([taskStore.fetchTask(taskId), taskStore.fetchTimeline(taskId)]); if (taskStore.currentTask?.status === 'running') startSSE() })
 onUnmounted(() => { disconnect() })
 function startSSE() { connect('/api/tasks/' + taskId + '/events', handleEvent) }
-function handleEvent(data: any) { const ts = new Date().toLocaleTimeString(); switch (data.type) {
+function handleEvent(data: any) { taskStore.appendTimelineEvent(data); const ts = new Date().toLocaleTimeString(); switch (data.type) {
   case 'task_started': logs.value.push('['+ts+'] 任务开始执行'); break
   case 'task_planning': logs.value.push('['+ts+'] 正在分析需求...'); break
   case 'task_planned': logs.value.push('['+ts+'] 任务分解完成: '+data.subtask_count+' 个子任务'); break
@@ -35,6 +35,7 @@ async function handleApprove() { await taskStore.approveChangeset(taskId); messa
 async function handleDiscard() { await taskStore.discardChangeset(taskId); message.success('变更已丢弃') }
 function gst(s: string) { const t: Record<string,string> = { pending:'等待中',planning:'规划中',running:'运行中',paused:'已暂停',awaiting_approval:'等待确认',completed:'已完成',failed:'失败',cancelled:'已取消' }; return t[s]||s }
 function gsc(s: string) { const m: Record<string,string> = { pending:'var(--c-text-3)',planning:'var(--c-accent)',running:'var(--c-accent)',paused:'var(--c-warning)',awaiting_approval:'var(--c-warning)',completed:'var(--c-success)',failed:'var(--c-danger)',cancelled:'var(--c-text-3)' }; return m[s]||'var(--c-text-3)' }
+function timelineLabel(event: { type: string; data: Record<string, unknown> }) { const labels: Record<string, string> = { task_created:'创建任务', task_planning:'开始规划', task_planned:'规划完成', task_started:'开始执行', subtask_started:'开始子任务', subtask_completed:'子任务完成', subtask_failed:'子任务失败', verification_completed:'完成验证', task_paused:'任务暂停', task_completed:'任务完成', task_failed:'任务失败', task_cancelled:'任务取消', task_awaiting_approval:'等待审阅', changeset_applied:'应用变更', changeset_discarded:'丢弃变更' }; const title = event.data.title || event.data.subtask_id || ''; return `${labels[event.type] || event.type}${title ? ` · ${title}` : ''}` }
 </script>
 <template>
   <div class="tdp"><a-spin :spinning="taskStore.loading"><template v-if="taskStore.currentTask">
@@ -42,7 +43,8 @@ function gsc(s: string) { const m: Record<string,string> = { pending:'var(--c-te
     <div class="dg"><div class="dl"><TaskProgress :task="taskStore.currentTask" /><div class="pn"><div class="nh"><span class="nt">子任务列表</span></div><div class="nb"><SubTaskList :task-id="taskId" :subtasks="taskStore.currentTask.subtasks||[]" /></div></div></div>
     <div class="dr"><div class="pn"><div class="nh"><span class="nt">任务信息</span></div><div class="nb"><div class="ig"><div class="ii"><span class="il2">工作目录</span><code class="iv mono">{{ taskStore.currentTask.workspace_dir }}</code></div><div v-if="taskStore.currentTask.run_config" class="ii"><span class="il2">确定性验证</span><span class="iv">{{ taskStore.currentTask.run_config.verification_profile }}</span></div><div class="ii"><span class="il2">Token 消耗</span><span class="iv ivn">{{ taskStore.currentTask.total_tokens.toLocaleString() }}</span></div><div class="ii"><span class="il2">创建时间</span><span class="iv">{{ new Date(taskStore.currentTask.created_at).toLocaleString() }}</span></div><div v-if="taskStore.currentTask.error" class="ii"><span class="il2">错误信息</span><span class="iv" style="color:var(--c-danger)">{{ taskStore.currentTask.error }}</span></div></div></div></div>
     <div v-if="taskStore.currentTask.changeset" class="pn"><div class="nh"><span class="nt">变更审阅</span><span class="nm">{{ taskStore.currentTask.changeset.files.length }} 个文件</span></div><div class="nb"><div class="files"><span v-for="file in taskStore.currentTask.changeset.files" :key="file.path">{{ file.operation }} · {{ file.path }}</span></div><pre class="diff">{{ taskStore.currentTask.changeset.diff || '没有文件变更' }}</pre></div></div>
-    <div class="pn"><div class="nh"><span class="nt">实时日志</span><span v-if="logs.length" class="nm">{{ logs.length }}</span></div><div class="nb lb"><div id="log-container" class="lc"><div v-if="logs.length===0" class="le">暂无日志</div><div v-for="(log,i) in logs" :key="i" class="ll">{{ log }}</div></div></div></div></div>
+    <div class="pn"><div class="nh"><span class="nt">实时日志</span><span v-if="logs.length" class="nm">{{ logs.length }}</span></div><div class="nb lb"><div id="log-container" class="lc"><div v-if="logs.length===0" class="le">暂无日志</div><div v-for="(log,i) in logs" :key="i" class="ll">{{ log }}</div></div></div></div>
+    <div class="pn"><div class="nh"><span class="nt">证据时间线</span><span class="nm">{{ taskStore.timeline.length }}</span></div><div class="nb lb"><div class="tl"><div v-if="taskStore.timeline.length===0" class="le">暂无持久化事件</div><div v-for="(event,index) in taskStore.timeline" :key="`${event.created_at}-${index}`" class="tle"><time>{{ new Date(event.created_at).toLocaleString() }}</time><span>{{ timelineLabel(event) }}</span></div></div></div></div></div>
   </div></template></a-spin></div>
 </template>
 <style scoped>
@@ -58,5 +60,6 @@ function gsc(s: string) { const m: Record<string,string> = { pending:'var(--c-te
 .il2{font-size:var(--text-xs);font-weight:500;color:var(--c-text-3);text-transform:uppercase;letter-spacing:.3px}.iv{font-size:var(--text-sm);color:var(--c-text);word-break:break-all}.ivn{font-size:var(--text-lg);font-weight:700;font-variant-numeric:tabular-nums}
 .lb{padding:0}.lc{background:var(--c-surface-2);padding:var(--sp-4);max-height:400px;overflow-y:auto;font-family:var(--font-mono);font-size:var(--text-xs);line-height:1.7}
 .le{color:var(--c-text-3);text-align:center;padding:var(--sp-8) 0}.ll{color:var(--c-text-2);padding:1px 0;border-bottom:1px solid var(--c-border)}.ll:last-child{border-bottom:none}
+.tl{max-height:340px;overflow-y:auto;padding:var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-3)}.tle{display:flex;flex-direction:column;gap:2px;padding-left:var(--sp-3);border-left:2px solid var(--c-border);font-size:var(--text-xs);color:var(--c-text-2)}.tle time{font-family:var(--font-mono);color:var(--c-text-3)}
 .files{display:flex;flex-direction:column;gap:4px;margin-bottom:var(--sp-3);font:var(--text-xs) var(--font-mono);color:var(--c-text-2)}.diff{max-height:360px;overflow:auto;margin:0;padding:var(--sp-3);border:1px solid var(--c-border);border-radius:var(--r-sm);background:var(--c-surface-2);white-space:pre-wrap;font:11px/1.6 var(--font-mono);color:var(--c-text-2)}
 </style>

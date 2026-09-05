@@ -259,10 +259,7 @@ class TaskManager:
         if task.status != TaskStatus.RUNNING:
             raise ValueError(f"任务不在运行状态: {task.status}")
         
-        # 通知执行器停止
-        if task_id in self._executors:
-            self._executors[task_id].stop()
-        
+        task.status = TaskStatus.PAUSED
         # 更新状态
         task.status = TaskStatus.PAUSED
         if task.current_subtask:
@@ -273,6 +270,10 @@ class TaskManager:
             task.current_subtask.started_at = None
         task.current_subtask_id = None
         self.store.save_task(task)
+
+        # Persist the pause boundary before unblocking the worker thread.
+        if task_id in self._executors:
+            self._executors[task_id].stop()
         
         # 发送事件
         self._emit_event("task_paused", {"task_id": task_id})
@@ -311,14 +312,14 @@ class TaskManager:
         if task.is_finished:
             raise ValueError(f"任务已结束: {task.status}")
         
-        # 通知执行器停止
-        if task_id in self._executors:
-            self._executors[task_id].stop()
-        
         # 更新状态
         task.status = TaskStatus.CANCELLED
         task.completed_at = datetime.now()
         self.store.save_task(task)
+
+        # Persist cancellation before unblocking the worker thread.
+        if task_id in self._executors:
+            self._executors[task_id].stop()
         
         # 发送事件
         self._emit_event("task_cancelled", {"task_id": task_id})
@@ -611,6 +612,9 @@ class TaskManager:
     
     def _emit_event(self, event_type: str, data: dict) -> None:
         """发送事件"""
+        task_id = data.get("task_id")
+        if task_id:
+            self.store.append_event(task_id, event_type, data)
         if self.on_task_event:
             try:
                 self.on_task_event(event_type, data)

@@ -339,6 +339,16 @@ async def get_subtask_rounds(task_id: str, subtask_id: str):
     ]
 
 
+@router.get("/{task_id}/timeline")
+async def get_timeline(task_id: str, limit: int = 200):
+    """Return persisted task evidence in chronological order."""
+    try:
+        task_manager.get_task(task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return task_manager.store.list_events(task_id, limit=max(1, min(limit, 500)))
+
+
 @router.get("/{task_id}/events")
 async def task_events(task_id: str, request: Request):
     """

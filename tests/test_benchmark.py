@@ -7,6 +7,8 @@ Benchmark 单元测试（离线，不依赖 LLM）
 import os
 import sys
 
+import json
+
 sys.path.insert(
     0,
     os.path.join(
@@ -17,6 +19,7 @@ sys.path.insert(
 from benchmark.tasks import TASKS
 from benchmark.runner import StrategyResult, TaskResult
 from benchmark.report import generate_report
+from benchmark.artifacts import BENCHMARK_VERSION, build_run_artifact, write_artifact
 
 
 class TestTasks:
@@ -67,5 +70,20 @@ class TestReport:
         assert self._make_result(True, True).repaired is False
         assert self._make_result(False, False).repaired is False
 
-    def test_empty_report(self):
+
+def test_versioned_artifact_preserves_raw_strategy_results(tmp_path):
+    result = TaskResult(
+        "task",
+        StrategyResult(passed=False, exit_code=1, detail="baseline failed", duration_seconds=1.2),
+        StrategyResult(passed=True, exit_code=0, rounds=2, detail="healed", duration_seconds=2.3),
+    )
+    artifact = build_run_artifact([result], max_repair_rounds=3)
+    path = write_artifact(tmp_path / "run", artifact)
+
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["benchmark_version"] == BENCHMARK_VERSION
+    assert persisted["runtime"]["max_repair_rounds"] == 3
+    assert persisted["results"][0]["self_healing"]["duration_seconds"] == 2.3
+
+def test_empty_report():
         assert "无评测结果" in generate_report([])

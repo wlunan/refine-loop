@@ -106,4 +106,10 @@ export const taskApi = {
     if (!response.ok) throw new Error('获取子任务迭代记录失败')
     return response.json()
   },
+
+  async getTimeline(id: string) {
+    const response = await fetch(`${API_BASE}/tasks/${id}/timeline`)
+    if (!response.ok) throw new Error('获取任务时间线失败')
+    return response.json()
+  },
 }
