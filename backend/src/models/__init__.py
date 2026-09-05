@@ -9,6 +9,7 @@ from .schemas import (
 from .run import (
     RunConfig,
     VerificationProfile,
+    VerificationRequestProfile,
     VerificationResult,
     VerificationStep,
     VerificationSummary,
@@ -23,6 +24,7 @@ __all__ = [
     "AgentState",
     "RunConfig",
     "VerificationProfile",
+    "VerificationRequestProfile",
     "VerificationResult",
     "VerificationStep",
     "VerificationSummary",

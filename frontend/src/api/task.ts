@@ -20,7 +20,7 @@ export const taskApi = {
     requirement: string,
     workspaceDir: string,
     domain: string,
-    verificationProfile = 'none',
+    verificationProfile = 'auto',
     maxRounds = 3,
     threshold = 85,
   ) {
@@ -39,6 +39,17 @@ export const taskApi = {
     if (!response.ok) {
       const error = await response.json()
       throw new Error(error.detail || '创建任务失败')
+    }
+    return response.json()
+  },
+
+  async detectVerification(workspaceDir: string) {
+    const response = await fetch(
+      `${API_BASE}/tasks/detect-verification?workspace_dir=${encodeURIComponent(workspaceDir)}`,
+    )
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || '无法识别验证计划')
     }
     return response.json()
   },

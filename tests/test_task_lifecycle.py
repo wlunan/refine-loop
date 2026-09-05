@@ -38,6 +38,14 @@ class BlockingExecutor:
         return subtask
 
 
+class FailingExecutor:
+    """Returns a failed subtask without involving an LLM or process runner."""
+
+    def execute(self, subtask, context, task_id):
+        subtask.mark_failed("verification command is unavailable")
+        return subtask
+
+
 def test_pause_preserves_persisted_checkpoint_state(tmp_path):
     git(["init", "-q"], tmp_path)
     git(["config", "user.email", "test@example.com"], tmp_path)
@@ -98,6 +106,39 @@ def test_manager_recovers_interrupted_task_to_resumable_state(tmp_path):
     assert recovered.status == TaskStatus.PAUSED
     assert recovered.current_subtask_id is None
     assert recovered.plan.subtasks[0].status == TaskStatus.PENDING
+
+
+def test_failed_subtask_persists_task_failure_before_worker_cleanup(tmp_path):
+    git(["init", "-q"], tmp_path)
+    git(["config", "user.email", "test@example.com"], tmp_path)
+    git(["config", "user.name", "Test User"], tmp_path)
+    (tmp_path / "app.py").write_text("value = 1\n", encoding="utf-8")
+    git(["add", "app.py"], tmp_path)
+    git(["commit", "-qm", "initial"], tmp_path)
+
+    store = StateStore(str(tmp_path / "state"))
+    manager = TaskManager(store=store)
+    task = Task(
+        id="failed_task",
+        title="fail",
+        description="fail",
+        workspace_dir=str(tmp_path),
+        status=TaskStatus.RUNNING,
+        plan=TaskPlan(
+            requirement="fail",
+            subtasks=[SubTask(id="subtask_1", title="change", description="change")],
+        ),
+    )
+    task.execution_workspace_dir = GitWorkspace(task.id, task.workspace_dir).create()
+    store.save_task(task)
+    executor = FailingExecutor()
+    manager._executors[task.id] = executor
+
+    manager._execute_task(task.id, executor, None, None)
+
+    persisted = manager.get_task(task.id)
+    assert persisted.status == TaskStatus.FAILED
+    assert persisted.error == "子任务失败: verification command is unavailable"
 
 
 def test_task_events_survive_a_new_store_instance(tmp_path):

@@ -22,6 +22,7 @@ export interface Task {
   workspace_dir: string
   domain: string
   run_config: { verification_profile: string; max_rounds: number; score_threshold: number } | null
+  metadata: Record<string, unknown>
   changeset: {
     diff: string
     files: Array<{ path: string; operation: string }>
@@ -64,12 +65,20 @@ export interface TaskTimelineEvent {
   created_at: string
 }
 
+export interface VerificationDetection {
+  profile: 'none' | 'python_pytest' | 'python_lint' | 'node_build'
+  summary: string
+  plan: string[]
+  dependency_note: string
+}
+
 export const useTaskStore = defineStore('task', () => {
   const tasks = ref<TaskSummary[]>([])
   const currentTask = ref<Task | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
   const timeline = ref<TaskTimelineEvent[]>([])
+  const verificationDetection = ref<VerificationDetection | null>(null)
 
   const runningTasks = computed(() =>
     tasks.value.filter((t) => t.status === 'running')
@@ -111,6 +120,11 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  async function detectVerification(workspaceDir: string) {
+    verificationDetection.value = await taskApi.detectVerification(workspaceDir)
+    return verificationDetection.value
+  }
+
   function appendTimelineEvent(event: { type: string; [key: string]: unknown }) {
     timeline.value.push({
       type: event.type,
@@ -123,7 +137,7 @@ export const useTaskStore = defineStore('task', () => {
     requirement: string,
     workspaceDir: string,
     domain: string,
-    verificationProfile = 'none',
+    verificationProfile = 'auto',
     maxRounds = 3,
     threshold = 85,
   ) {
@@ -213,11 +227,13 @@ export const useTaskStore = defineStore('task', () => {
     loading,
     error,
     timeline,
+    verificationDetection,
     runningTasks,
     completedTasks,
     fetchTasks,
     fetchTask,
     fetchTimeline,
+    detectVerification,
     appendTimelineEvent,
     createTask,
     startTask,

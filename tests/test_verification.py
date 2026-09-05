@@ -37,6 +37,13 @@ class TestCommandRunner:
         assert result.exit_code == 3
         assert result.success is False
 
+    def test_missing_executable_returns_structured_failure(self):
+        runner = CommandRunner(tempfile.mkdtemp())
+        result = runner.run_args(["generator_critic_missing_executable_12345"])
+        assert result.success is False
+        assert result.exit_code == -1
+        assert "未找到验证命令" in result.stderr
+
     def test_run_tests_pass(self):
         d = tempfile.mkdtemp()
         with open(os.path.join(d, "test_tmp.py"), "w", encoding="utf-8") as f:
@@ -90,6 +97,17 @@ class TestCodeVerifier:
         )
         assert config.verification_profile == "python_pytest"
         assert config.verification_steps[0].id == "pytest"
+
+    def test_node_profile_uses_windows_command_shim(self):
+        config = RunConfig.from_profile(
+            "node_build",
+            max_rounds=3,
+            score_threshold=85,
+            round_token_budget=100,
+            total_token_budget=200,
+        )
+        expected = "npm.cmd" if sys.platform == "win32" else "npm"
+        assert config.verification_steps[0].args == [expected, "run", "build"]
 
     def test_verify_collects_failure_evidence(self):
         d = tempfile.mkdtemp()

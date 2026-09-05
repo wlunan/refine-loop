@@ -26,8 +26,9 @@ from pydantic import BaseModel
 
 from config.settings import get_config
 from src.manager.task_manager import TaskManager
-from src.models.run import RunConfig, VerificationProfile
+from src.models.run import RunConfig, VerificationRequestProfile
 from src.models.task import TaskStatus
+from src.tools.project_detector import detect_verification_plan
 
 from .common import sse_response
 
@@ -64,7 +65,8 @@ class CreateTaskRequest(BaseModel):
     domain: str = "code"
     max_rounds: int = 3
     threshold: int = 85
-    verification_profile: VerificationProfile = "none"
+    # "auto" is resolved from the selected workspace before task creation.
+    verification_profile: VerificationRequestProfile = "auto"
 
 
 class TaskResponse(BaseModel):
@@ -125,8 +127,14 @@ async def create_task(request: CreateTaskRequest):
     """
     try:
         settings = get_config().orchestrator
+        detection = detect_verification_plan(request.workspace_dir)
+        resolved_profile = (
+            detection["profile"]
+            if request.verification_profile == "auto"
+            else request.verification_profile
+        )
         run_config = RunConfig.from_profile(
-            request.verification_profile,
+            resolved_profile,
             max_rounds=request.max_rounds,
             score_threshold=request.threshold,
             round_token_budget=settings.round_token_budget,
@@ -138,7 +146,16 @@ async def create_task(request: CreateTaskRequest):
             domain=request.domain,
             run_config=run_config,
         )
-        return {"task_id": task.id, "title": task.title}
+        task.metadata["verification_detection"] = {
+            **detection,
+            "selection": request.verification_profile,
+        }
+        task_manager.store.save_task(task)
+        return {
+            "task_id": task.id,
+            "title": task.title,
+            "verification_detection": task.metadata["verification_detection"],
+        }
     except Exception as e:  # noqa: BLE001
         logger.error(f"创建任务失败: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -174,6 +191,15 @@ async def list_tasks(status: Optional[str] = None, limit: int = 50):
     ]
 
 
+@router.get("/detect-verification")
+async def detect_verification(workspace_dir: str):
+    """Preview the safe verification plan inferred from a local workspace."""
+    try:
+        return detect_verification_plan(workspace_dir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/{task_id}")
 async def get_task(task_id: str):
     """获取任务详情"""
@@ -188,6 +214,7 @@ async def get_task(task_id: str):
             "workspace_dir": task.workspace_dir,
             "domain": task.domain,
             "run_config": task.run_config.model_dump() if task.run_config else None,
+            "metadata": task.metadata,
             "changeset": task.changeset.model_dump() if task.changeset else None,
             "error": task.error,
             "total_tokens": task.total_tokens,

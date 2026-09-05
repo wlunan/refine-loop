@@ -177,6 +177,13 @@ class CommandRunner:
                 timed_out=True,
                 duration_seconds=time.monotonic() - started_at,
             )
+        except FileNotFoundError as e:
+            return CommandResult(
+                command=" ".join(args),
+                exit_code=-1,
+                stderr=f"未找到验证命令: {args[0]} ({e})",
+                duration_seconds=time.monotonic() - started_at,
+            )
 
     def run_tests(self, path: str = ".", extra_args: str = "") -> CommandResult:
         """

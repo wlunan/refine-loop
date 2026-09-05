@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 
 
 VerificationProfile = Literal["none", "python_pytest", "python_lint", "node_build"]
+VerificationRequestProfile = Literal[
+    "auto", "none", "python_pytest", "python_lint", "node_build"
+]
 
 
 class VerificationStep(BaseModel):
@@ -111,7 +114,9 @@ class RunConfig(BaseModel):
                     id="node_build",
                     label="npm run build",
                     command="npm run build",
-                    args=["npm", "run", "build"],
+                    # Windows resolves npm through its .cmd shim when
+                    # subprocess runs without a shell.
+                    args=["npm.cmd" if sys.platform == "win32" else "npm", "run", "build"],
                 )
             ],
         }

@@ -487,6 +487,7 @@ class TaskManager:
                     # 子任务失败，整个任务失败
                     task.status = TaskStatus.FAILED
                     task.error = f"子任务失败: {completed_subtask.error}"
+                    self.store.save_task(task)
                     break
                 
                 # 保存进度
@@ -514,6 +515,7 @@ class TaskManager:
             else:
                 task.status = TaskStatus.FAILED
                 task.error = str(e)
+                self.store.save_task(task)
         
         finally:
             task = self._load_task(task_id)
