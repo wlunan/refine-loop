@@ -97,6 +97,8 @@ class TaskManager:
         task_id = f"task_{uuid.uuid4().hex[:8]}"
         
         # 创建任务对象
+        # git_isolated 记录工作区是否为 Git 仓库：
+        # True → worktree 隔离 + 变更集审批；False → 直接修改原目录
         task = Task(
             id=task_id,
             title=requirement[:50] + ("..." if len(requirement) > 50 else ""),
@@ -105,6 +107,9 @@ class TaskManager:
             domain=domain,
             run_config=run_config,
             status=TaskStatus.PENDING,
+            metadata={
+                "git_isolated": GitWorkspace.is_git_repo(workspace_dir),
+            },
         )
         
         # 保存任务
@@ -527,14 +532,20 @@ class TaskManager:
             
             # 检查最终状态
             if task.status == TaskStatus.RUNNING:
-                changeset = GitWorkspace.collect(
-                    task.workspace_dir,
-                    self._ensure_execution_workspace(task),
-                )
-                task.changeset = changeset
-                if changeset.files:
-                    task.status = TaskStatus.AWAITING_APPROVAL
+                if task.execution_workspace_dir:
+                    # Git 隔离模式：Agent 在 worktree 中修改，收集变更集等待用户审批
+                    changeset = GitWorkspace.collect(
+                        task.workspace_dir,
+                        task.execution_workspace_dir,
+                    )
+                    task.changeset = changeset
+                    if changeset.files:
+                        task.status = TaskStatus.AWAITING_APPROVAL
+                    else:
+                        task.status = TaskStatus.COMPLETED
+                        task.completed_at = datetime.now()
                 else:
+                    # 非 Git 目录：Agent 直接修改原工作区，无需变更集审批
                     task.status = TaskStatus.COMPLETED
                     task.completed_at = datetime.now()
                 self.store.save_task(task)
@@ -609,9 +620,17 @@ class TaskManager:
                 logger.info(f"已恢复中断任务为可续跑状态: {task.id}")
 
     def _ensure_execution_workspace(self, task: Task) -> str:
-        """返回任务的隔离 worktree，首次使用时创建并持久化路径。"""
+        """返回任务的执行目录。
+
+        - Git 仓库内：创建隔离 worktree（首次使用时创建并持久化路径），
+          Agent 在 worktree 中修改，完成后收集变更集等待审批。
+        - 非 Git 目录：不做隔离，Agent 直接在原目录修改，
+          完成后无需变更集审批（execution_workspace_dir 保持为 None）。
+        """
         if task.execution_workspace_dir:
             return task.execution_workspace_dir
+        if not GitWorkspace.is_git_repo(task.workspace_dir):
+            return task.workspace_dir
         workspace = GitWorkspace(task.id, task.workspace_dir)
         task.execution_workspace_dir = workspace.create()
         self.store.save_task(task)

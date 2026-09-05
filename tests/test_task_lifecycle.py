@@ -75,6 +75,15 @@ class UsageRecordingExecutor:
         return subtask
 
 
+class WritingExecutor:
+    """Writes a file into the workspace without involving an LLM."""
+
+    def execute(self, subtask, context, task_id):
+        context.workspace.write_file("generated.py", "value = 42\n")
+        subtask.mark_completed("file written", 100)
+        return subtask
+
+
 def test_pause_preserves_persisted_checkpoint_state(tmp_path):
     git(["init", "-q"], tmp_path)
     git(["config", "user.email", "test@example.com"], tmp_path)
@@ -238,6 +247,75 @@ def test_task_total_tokens_matches_persisted_usage_ledger_after_subtask_save(tmp
     )
     assert usage_ledger_total == 200
     assert persisted.total_tokens == usage_ledger_total
+
+
+def test_non_git_workspace_writes_directly_without_changeset(tmp_path):
+    """非 Git 目录：Agent 直接修改原工作区，任务直接完成且无变更集审批。"""
+    (tmp_path / "existing.txt").write_text("keep\n", encoding="utf-8")
+
+    store = StateStore(str(tmp_path / "state"))
+    manager = TaskManager(store=store)
+    task = Task(
+        id="plain_task",
+        title="plain",
+        description="plain",
+        workspace_dir=str(tmp_path),
+        status=TaskStatus.RUNNING,
+        plan=TaskPlan(
+            requirement="plain",
+            subtasks=[SubTask(id="subtask_1", title="change", description="change")],
+        ),
+    )
+    store.save_task(task)
+    executor = WritingExecutor()
+    manager._executors[task.id] = executor
+
+    manager._execute_task(task.id, executor, None, None)
+
+    persisted = manager.get_task(task.id)
+    assert persisted.status == TaskStatus.COMPLETED
+    assert persisted.changeset is None
+    assert persisted.execution_workspace_dir is None
+    # 文件直接写入原目录
+    assert (tmp_path / "generated.py").read_text(encoding="utf-8") == "value = 42\n"
+    assert (tmp_path / "existing.txt").read_text(encoding="utf-8") == "keep\n"
+
+
+def test_git_workspace_still_creates_isolated_worktree(tmp_path):
+    """Git 仓库内：沿用 worktree 隔离 + 变更集审批的原有逻辑。"""
+    git(["init", "-q"], tmp_path)
+    git(["config", "user.email", "test@example.com"], tmp_path)
+    git(["config", "user.name", "Test User"], tmp_path)
+    (tmp_path / "app.py").write_text("value = 1\n", encoding="utf-8")
+    git(["add", "app.py"], tmp_path)
+    git(["commit", "-qm", "initial"], tmp_path)
+
+    store = StateStore(str(tmp_path / "state"))
+    manager = TaskManager(store=store)
+    task = Task(
+        id="git_task",
+        title="git",
+        description="git",
+        workspace_dir=str(tmp_path),
+        status=TaskStatus.RUNNING,
+        plan=TaskPlan(
+            requirement="git",
+            subtasks=[SubTask(id="subtask_1", title="change", description="change")],
+        ),
+    )
+    store.save_task(task)
+    executor = WritingExecutor()
+    manager._executors[task.id] = executor
+
+    manager._execute_task(task.id, executor, None, None)
+
+    persisted = manager.get_task(task.id)
+    assert persisted.status == TaskStatus.AWAITING_APPROVAL
+    assert persisted.execution_workspace_dir
+    # 修改落在 worktree 中，原目录未被写入
+    assert persisted.changeset is not None
+    assert [item.path for item in persisted.changeset.files] == ["generated.py"]
+    assert not (tmp_path / "generated.py").exists()
 
 
 def test_task_events_survive_a_new_store_instance(tmp_path):

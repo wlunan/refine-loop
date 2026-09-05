@@ -185,7 +185,7 @@ class Task(BaseModel):
     workspace_dir: str = Field(description="工作目录")
     execution_workspace_dir: Optional[str] = Field(
         default=None,
-        description="Agent 实际执行的隔离 Git worktree"
+        description="Agent 实际执行的隔离 Git worktree（非 Git 目录任务为 None，直接修改原目录）"
     )
     domain: str = Field(
         default="code",

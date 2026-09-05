@@ -42,6 +42,12 @@ class GitWorkspace:
         )
 
     @classmethod
+    def is_git_repo(cls, path: str) -> bool:
+        """判断目录是否位于 Git 仓库内（不抛异常，供运行模式探测使用）。"""
+        result = cls._run(["git", "rev-parse", "--show-toplevel"], cwd=path)
+        return result.returncode == 0
+
+    @classmethod
     def _git_root(cls, path: str) -> str:
         result = cls._run(["git", "rev-parse", "--show-toplevel"], cwd=path)
         if result.returncode != 0:
