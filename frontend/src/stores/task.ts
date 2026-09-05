@@ -198,6 +198,15 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  async function deleteTask(id: string) {
+    await taskApi.deleteTask(id)
+    tasks.value = tasks.value.filter((task) => task.id !== id)
+    if (currentTask.value?.id === id) {
+      currentTask.value = null
+      timeline.value = []
+    }
+  }
+
   async function approveChangeset(id: string) {
     await taskApi.approveChangeset(id)
     await fetchTask(id)
@@ -240,6 +249,7 @@ export const useTaskStore = defineStore('task', () => {
     pauseTask,
     resumeTask,
     cancelTask,
+    deleteTask,
     approveChangeset,
     discardChangeset,
     updateTaskProgress,

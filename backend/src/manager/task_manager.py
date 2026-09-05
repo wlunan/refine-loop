@@ -331,6 +331,8 @@ class TaskManager:
         task = self._load_task(task_id)
         if task.status != TaskStatus.AWAITING_APPROVAL or not task.changeset:
             raise ValueError("任务当前没有可批准的变更集")
+        # Migrate pending tasks created before runtime-artifact filtering.
+        task.changeset = GitWorkspace.refresh_legacy_changeset(task.changeset)
         GitWorkspace.apply(task.changeset)
         GitWorkspace.discard(task.changeset.source_workspace, task.changeset.worktree_path)
         task.changeset.status = "applied"
@@ -356,6 +358,30 @@ class TaskManager:
         self._emit_event("changeset_discarded", {"task_id": task_id})
         self._emit_event("task_cancelled", {"task_id": task_id, "status": task.status.value})
         return task
+
+    def delete_task(self, task_id: str) -> None:
+        """Delete terminal task records and discard any unapproved worktree."""
+        task = self._load_task(task_id)
+        active_statuses = (
+            TaskStatus.PENDING,
+            TaskStatus.PLANNING,
+            TaskStatus.RUNNING,
+            TaskStatus.PAUSED,
+        )
+        if task.status in active_statuses:
+            raise ValueError("运行中或可恢复的任务请先取消，再删除")
+
+        if task.status == TaskStatus.AWAITING_APPROVAL and task.changeset:
+            GitWorkspace.discard(
+                task.changeset.source_workspace,
+                task.changeset.worktree_path,
+            )
+        elif task.execution_workspace_dir:
+            GitWorkspace.discard(task.workspace_dir, task.execution_workspace_dir)
+
+        self._cleanup_task(task_id)
+        if not self.store.delete_task(task_id):
+            raise ValueError(f"任务不存在: {task_id}")
     
     # ------------------------------------------------------------------
     # 查询接口

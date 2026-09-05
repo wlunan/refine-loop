@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { formatTokenCount } from '../../utils/format'
 interface Task { id: string; status: string; progress_percent: number; total_tokens: number; error: string | null }
 const props = defineProps<{ task: Task }>()
 const statusColor = computed(() => {
@@ -18,7 +19,7 @@ const statusText = computed(() => {
         <div class="pv" :style="{color:statusColor}">{{ task.progress_percent.toFixed(1) }}%</div>
         <span class="ps" :style="{color:statusColor}">{{ statusText }}</span>
       </div>
-      <div class="pr"><div class="st"><span class="sl2">Token</span><span class="sv">{{ task.total_tokens.toLocaleString() }}</span></div></div>
+      <div class="pr"><div class="st"><span class="sl2">Token</span><span class="sv">{{ formatTokenCount(task.total_tokens) }}</span></div></div>
     </div>
     <a-progress :percent="task.progress_percent" :stroke-color="statusColor" :status="task.status==='failed'?'exception':undefined" :show-info="false" />
     <a-alert v-if="task.error" :message="task.error" type="error" show-icon style="margin-top:var(--sp-3);" />

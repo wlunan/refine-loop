@@ -86,6 +86,15 @@ export const taskApi = {
     return response.json()
   },
 
+  async deleteTask(id: string) {
+    const response = await fetch(`${API_BASE}/tasks/${id}`, { method: 'DELETE' })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || '删除任务失败')
+    }
+    return response.json()
+  },
+
   async approveChangeset(id: string) {
     const response = await fetch(`${API_BASE}/tasks/${id}/changeset/approve`, { method: 'POST' })
     if (!response.ok) {

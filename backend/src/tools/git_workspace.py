@@ -17,6 +17,13 @@ class GitWorkspaceError(ValueError):
 class GitWorkspace:
     """为单个任务创建隔离 worktree，并收集可审阅的变更。"""
 
+    # Test runners create these files as side effects; they are not user-approved code changes.
+    _RUNTIME_ARTIFACT_EXCLUSIONS = (
+        ":(exclude)**/__pycache__/**",
+        ":(exclude)**/.pytest_cache/**",
+        ":(exclude)**/*.pyc",
+    )
+
     def __init__(self, task_id: str, source_workspace: str):
         self.task_id = task_id
         self.source_workspace = self._git_root(source_workspace)
@@ -41,6 +48,31 @@ class GitWorkspace:
             raise GitWorkspaceError("代码任务必须在 Git 仓库内创建")
         return str(Path(result.stdout.strip()).resolve())
 
+    @staticmethod
+    def _is_runtime_artifact(path: str) -> bool:
+        """Identify generated files that must never be reviewed or applied."""
+        normalized = "/" + path.replace("\\", "/").lstrip("/")
+        return (
+            "/__pycache__/" in normalized
+            or "/.pytest_cache/" in normalized
+            or normalized.endswith(".pyc")
+        )
+
+    @classmethod
+    def refresh_legacy_changeset(cls, changeset: ChangeSet) -> ChangeSet:
+        """Rebuild a pre-filter changeset only when it contains runtime artifacts."""
+        if not any(cls._is_runtime_artifact(item.path) for item in changeset.files):
+            return changeset
+
+        refreshed = cls.collect(changeset.source_workspace, changeset.worktree_path)
+        reviewed_paths = sorted(
+            item.path for item in changeset.files if not cls._is_runtime_artifact(item.path)
+        )
+        refreshed_paths = sorted(item.path for item in refreshed.files)
+        if reviewed_paths != refreshed_paths:
+            raise GitWorkspaceError("变更集在审阅后已变化，请重新审阅后再应用")
+        return refreshed
+
     def create(self) -> str:
         """创建 detached worktree；原始仓库不会被 Agent 写入。"""
         base = Path(tempfile.gettempdir()) / "generator-critic-agent" / "worktrees"
@@ -63,8 +95,11 @@ class GitWorkspace:
         worktree = str(Path(worktree_path).resolve())
         # intent-to-add 让未跟踪文本文件也进入 git diff，索引仅属于该 worktree。
         cls._run(["git", "add", "-N", "--", "."], cwd=worktree)
-        diff = cls._run(["git", "diff", "--binary", "--", "."], cwd=worktree)
-        status = cls._run(["git", "diff", "--name-status", "--", "."], cwd=worktree)
+        # Keep diff and file list aligned, otherwise an ignored binary artifact can
+        # make the whole patch fail at approval time.
+        pathspec = ["--", ".", *cls._RUNTIME_ARTIFACT_EXCLUSIONS]
+        diff = cls._run(["git", "diff", "--binary", *pathspec], cwd=worktree)
+        status = cls._run(["git", "diff", "--name-status", *pathspec], cwd=worktree)
         if diff.returncode != 0 or status.returncode != 0:
             raise GitWorkspaceError("读取 worktree 变更失败")
         files = []

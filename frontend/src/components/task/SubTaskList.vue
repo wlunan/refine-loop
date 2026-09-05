@@ -10,6 +10,7 @@ import {
   RightOutlined,
 } from '@ant-design/icons-vue'
 import { taskApi } from '../../api/task'
+import { formatTokenCount } from '../../utils/format'
 
 interface SubTask {
   id: string
@@ -132,7 +133,7 @@ async function toggle(subtask: SubTask) {
               <span class="rt">第 {{ r.round }} 轮</span>
               <span v-if="r.score!==null" class="rsc" :style="{color:sc(r.score)}">{{ r.score }} 分</span>
               <span v-if="r.acceptable!==null" class="rb" :style="r.acceptable ? {color:'var(--c-success)',background:'rgba(16,185,129,.12)'} : {color:'var(--c-danger)',background:'rgba(239,68,68,.1)'}">{{ r.acceptable ? '可接受' : '需修改' }}</span>
-              <span v-if="r.tokens_used" class="rtk">{{ r.tokens_used }} tokens</span>
+              <span v-if="r.tokens_used" class="rtk">{{ formatTokenCount(r.tokens_used) }} tokens</span>
             </div>
             <div class="rg">
               <span class="rl">生成内容</span>

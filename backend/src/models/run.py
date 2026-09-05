@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 VerificationProfile = Literal["none", "python_pytest", "python_lint", "node_build"]
@@ -79,6 +79,16 @@ class RunConfig(BaseModel):
     total_token_budget: int = Field(default=2000000, ge=0)
     verification_profile: VerificationProfile = "none"
     verification_steps: list[VerificationStep] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def migrate_windows_npm_command(self) -> "RunConfig":
+        """Keep persisted tasks created before the Windows command fix runnable."""
+        if sys.platform != "win32" or self.verification_profile != "node_build":
+            return self
+        for step in self.verification_steps:
+            if step.id == "node_build" and step.args and step.args[0] == "npm":
+                step.args[0] = "npm.cmd"
+        return self
 
     @classmethod
     def from_profile(

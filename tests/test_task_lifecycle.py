@@ -12,7 +12,7 @@ sys.path.insert(
 )
 
 from src.manager.task_manager import TaskManager
-from src.models.task import SubTask, Task, TaskPlan, TaskStatus
+from src.models.task import Checkpoint, SubTask, Task, TaskPlan, TaskStatus
 from src.store.state_store import StateStore
 from src.tools.git_workspace import GitWorkspace
 
@@ -181,3 +181,24 @@ def test_task_events_survive_a_new_store_instance(tmp_path):
     assert [event["type"] for event in events] == ["subtask_started", "verification_completed"]
     assert events[1]["data"]["passed"] is True
     assert events[0]["created_at"]
+
+
+def test_delete_task_removes_record_checkpoints_and_timeline(tmp_path):
+    store = StateStore(str(tmp_path / "state"))
+    task = Task(
+        id="delete_task",
+        title="delete",
+        description="delete",
+        workspace_dir=str(tmp_path),
+        status=TaskStatus.FAILED,
+    )
+    store.save_task(task)
+    store.save_checkpoint(Checkpoint(task_id=task.id, subtask_id="subtask_1", round=1))
+    store.append_event(task.id, "task_failed", {"task_id": task.id})
+    manager = TaskManager(store=store)
+
+    manager.delete_task(task.id)
+
+    assert store.load_task(task.id) is None
+    assert store.list_checkpoints(task.id) == []
+    assert store.list_events(task.id) == []

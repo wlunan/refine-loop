@@ -58,3 +58,22 @@ def test_discard_leaves_source_unchanged(tmp_path):
     assert changeset.files[0].path == "app.py"
     assert (tmp_path / "app.py").read_text(encoding="utf-8") == "value = 1\n"
     assert not worktree.exists()
+
+
+def test_collect_excludes_python_runtime_cache_from_changeset(tmp_path):
+    """Runtime caches must not make an otherwise valid code patch unapplicable."""
+    init_repository(tmp_path)
+    workspace = GitWorkspace("task_runtime_cache", str(tmp_path))
+    worktree = Path(workspace.create())
+    cache_dir = worktree / "__pycache__"
+    cache_dir.mkdir()
+    (cache_dir / "generated.cpython-312.pyc").write_bytes(b"runtime cache")
+    (worktree / "new.py").write_text("created = True\n", encoding="utf-8")
+
+    changeset = GitWorkspace.collect(str(tmp_path), str(worktree))
+
+    assert {item.path for item in changeset.files} == {"new.py"}
+    assert "__pycache__" not in changeset.diff
+    GitWorkspace.apply(changeset)
+    assert (tmp_path / "new.py").read_text(encoding="utf-8") == "created = True\n"
+    GitWorkspace.discard(str(tmp_path), str(worktree))

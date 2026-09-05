@@ -24,6 +24,17 @@ from src.prompts.critic_prompt import (
 logger = logging.getLogger(__name__)
 
 
+# Keep the contract short: verbose parser schemas are easier for smaller models to ignore.
+_CRITIQUE_JSON_CONTRACT = """
+Return only one JSON object. Do not use Markdown fences or explanations.
+The object must include: score (integer 0-100), issues (string array),
+suggestions (string array), acceptable (boolean), and summary (string or null).
+Example: {"score": 85, "issues": [], "suggestions": [], "acceptable": true, "summary": "Ready"}
+""".strip()
+
+_MAX_REPAIR_RESPONSE_CHARS = 6000
+
+
 class CriticAgent(BaseAgent):
     """
     批判者 Agent
@@ -83,15 +94,27 @@ class CriticAgent(BaseAgent):
 
         # 注入 Pydantic 输出的 JSON Schema，明确告知模型应输出的字段与类型，
         # 否则弱模型容易输出字段缺失/类型错误/夹带文字，导致解析降级
-        format_instructions = self.parser.get_format_instructions()
-        user_message = user_message + "\n\n" + format_instructions
+        user_message = user_message + "\n\n" + _CRITIQUE_JSON_CONTRACT
 
         logger.info(
             f"[Critic] 开始审查，产出长度: {len(draft)}"
         )
 
         raw_response = self.call_llm_with_retry(user_message)
-        result = self._parse_critique_response(raw_response)
+        result = self._try_parse_critique_response(raw_response)
+
+        # One bounded repair attempt turns a format-only failure into a usable review.
+        if result is None:
+            logger.warning("[Critic] Structured output invalid; requesting one format repair")
+            try:
+                repaired_response = self.call_llm_with_retry(
+                    self._build_json_repair_prompt(raw_response)
+                )
+                result = self._try_parse_critique_response(repaired_response)
+            except Exception as error:
+                logger.warning("[Critic] Format repair request failed: %s", error)
+
+        result = result or self._parse_critique_response(raw_response)
 
         logger.info(
             f"[Critic] 审查完成，评分: {result.score}, "
@@ -99,6 +122,40 @@ class CriticAgent(BaseAgent):
             f"可接受: {result.acceptable}"
         )
         return result
+
+    def _try_parse_critique_response(
+        self, response: str
+    ) -> Optional[CritiqueResult]:
+        """Return a parsed review when a valid structured result is present."""
+        try:
+            return self.parser.parse(response)
+        except Exception as error:
+            logger.debug("[Critic] Direct parse failed: %s", error)
+
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"\{", response):
+            try:
+                data, _ = decoder.raw_decode(response[match.start():])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(data, dict) or "score" not in data:
+                continue
+            try:
+                return self._coerce_critique(data)
+            except (TypeError, ValueError) as error:
+                logger.debug("[Critic] Extracted JSON invalid: %s", error)
+        return None
+
+    @staticmethod
+    def _build_json_repair_prompt(response: str) -> str:
+        """Ask the same model to repair format only, with a bounded source payload."""
+        return (
+            "The Critic reply below was not valid JSON. Convert it to the required "
+            "schema without adding new review conclusions. Return only one JSON object "
+            "with score, issues, suggestions, acceptable, and summary.\n\n"
+            "Original reply:\n"
+            f"{response[:_MAX_REPAIR_RESPONSE_CHARS]}"
+        )
 
     def _parse_critique_response(self, response: str) -> CritiqueResult:
         """
@@ -133,15 +190,14 @@ class CriticAgent(BaseAgent):
         return CritiqueResult(
             score=50,
             issues=[
-                "Critic 的回复格式无法解析，无法进行有效审查。"
+                "Critic 的结构化输出在自动修复后仍无法解析，任务已阻止继续以避免误判。"
                 f"原始回复片段: {snippet}"
             ],
             suggestions=[
-                "请确认 Critic 模型是否严格输出 JSON；"
-                "或换用更强的模型（如 mimo-v2.5-pro / gpt-4o-mini）"
+                "请查看本轮原始回复，并确认模型网关未改写 JSON 内容。"
             ],
             acceptable=False,
-            summary="解析降级",
+            summary="Critic 结构化输出恢复失败",
         )
 
     def _coerce_critique(self, data) -> CritiqueResult:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -118,12 +119,23 @@ class StateStore:
         Returns:
             是否删除成功
         """
-        path = self._task_path(task_id)
-        if path.exists():
-            path.unlink()
-            logger.info(f"任务已删除: {task_id}")
-            return True
-        return False
+        task_path = self._task_path(task_id)
+        checkpoint_dir = self._checkpoint_dir(task_id)
+        event_path = self._event_path(task_id)
+        deleted = False
+
+        if task_path.exists():
+            task_path.unlink()
+            deleted = True
+        if checkpoint_dir.exists():
+            shutil.rmtree(checkpoint_dir)
+            deleted = True
+        if event_path.exists():
+            event_path.unlink()
+            deleted = True
+        if deleted:
+            logger.info(f"任务及其持久化证据已删除: {task_id}")
+        return deleted
 
     def list_tasks(
         self,

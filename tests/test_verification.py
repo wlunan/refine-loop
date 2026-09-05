@@ -109,6 +109,23 @@ class TestCodeVerifier:
         expected = "npm.cmd" if sys.platform == "win32" else "npm"
         assert config.verification_steps[0].args == [expected, "run", "build"]
 
+    def test_legacy_windows_node_profile_is_migrated_on_load(self):
+        config = RunConfig.model_validate(
+            {
+                "verification_profile": "node_build",
+                "verification_steps": [
+                    {
+                        "id": "node_build",
+                        "label": "npm run build",
+                        "command": "npm run build",
+                        "args": ["npm", "run", "build"],
+                    }
+                ],
+            }
+        )
+        expected = "npm.cmd" if sys.platform == "win32" else "npm"
+        assert config.verification_steps[0].args[0] == expected
+
     def test_verify_collects_failure_evidence(self):
         d = tempfile.mkdtemp()
         with open(os.path.join(d, "check.py"), "w", encoding="utf-8") as f:

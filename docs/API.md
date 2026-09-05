@@ -115,6 +115,7 @@
 | `POST` | `/api/tasks/{task_id}/pause` | 向当前执行器请求停止，并把状态置为 `paused`。 |
 | `POST` | `/api/tasks/{task_id}/resume` | 重新调用启动流程；不会从检查点恢复未完成子任务的上下文。 |
 | `POST` | `/api/tasks/{task_id}/cancel` | 请求停止、状态置为 `cancelled` 并清理运行中资源。 |
+| `DELETE` | `/api/tasks/{task_id}` | 删除已完成、失败、已取消或等待确认的任务，以及其检查点、事件记录；等待确认的变更会被丢弃，原工作区不受影响。运行中或暂停任务需先取消。 |
 
 这些控制接口的状态错误当前返回 400；其中 `start` 的规划失败也会以 400 返回。
 

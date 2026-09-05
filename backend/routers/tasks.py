@@ -279,6 +279,16 @@ async def cancel_task(task_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.delete("/{task_id}")
+async def delete_task(task_id: str):
+    """Delete a terminal task and its local evidence."""
+    try:
+        task_manager.delete_task(task_id)
+        return {"message": "任务已删除"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/{task_id}/changeset")
 async def get_changeset(task_id: str):
     """获取等待审阅的 Git diff。"""

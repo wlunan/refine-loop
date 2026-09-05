@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { PlayCircleOutlined, PauseCircleOutlined, StopOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons-vue'
+import { DeleteOutlined, PlayCircleOutlined, PauseCircleOutlined, StopOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons-vue'
 import { useTaskStore } from '../stores/task'
 const router = useRouter()
 const taskStore = useTaskStore()
@@ -12,6 +12,7 @@ function handleStart(id: string) { Modal.confirm({ title: '确认启动', conten
 function handlePause(id: string) { taskStore.pauseTask(id).then(() => message.success('任务已暂停')) }
 function handleResume(id: string) { taskStore.resumeTask(id).then(() => message.success('任务已恢复')) }
 function handleCancel(id: string) { Modal.confirm({ title: '确认取消', content: '确定要取消这个任务吗？', okType: 'danger', onOk: () => taskStore.cancelTask(id).then(() => message.success('任务已取消')) }) }
+function handleDelete(id: string, status: string) { const discardsDiff = status === 'awaiting_approval'; Modal.confirm({ title: '确认删除任务', content: discardsDiff ? '删除后将丢弃尚未应用的变更、运行记录和检查点，无法恢复。' : '删除后将清除任务记录、运行日志和检查点，无法恢复。', okText: '删除', okType: 'danger', onOk: () => taskStore.deleteTask(id).then(() => message.success('任务已删除')) }) }
 function gsd(s: string) { const m: Record<string,string> = { pending:'var(--c-text-3)', planning:'var(--c-accent)', running:'var(--c-accent)', paused:'var(--c-warning)', awaiting_approval:'var(--c-warning)', completed:'var(--c-success)', failed:'var(--c-danger)', cancelled:'var(--c-text-3)' }; return m[s]||'var(--c-text-3)' }
 function gst(s: string) { const t: Record<string,string> = { pending:'等待中', planning:'规划中', running:'运行中', paused:'已暂停', awaiting_approval:'等待确认', completed:'已完成', failed:'失败', cancelled:'已取消' }; return t[s]||s }
 function handleFilterChange(v: string) { statusFilter.value = v || undefined; taskStore.fetchTasks(statusFilter.value) }
@@ -24,7 +25,7 @@ function handleFilterChange(v: string) { statusFilter.value = v || undefined; ta
       <div v-if="taskStore.tasks.length===0" class="es"><div class="ei">&#9671;</div><p class="et">暂无任务，点击右上角新建代码任务</p></div>
       <div v-else class="tg">
         <div v-for="task in taskStore.tasks" :key="task.id" class="tc" @click="router.push('/tasks/'+task.id)">
-          <div class="ct"><div class="cs"><span class="sd" :style="{background:gsd(task.status)}"></span><span class="st">{{ gst(task.status) }}</span></div><a-dropdown :trigger="['click']" @click.stop><button class="mb">&#8943;</button><template #overlay><a-menu><a-menu-item v-if="task.status==='pending'" @click.stop="handleStart(task.id)"><PlayCircleOutlined /> 启动</a-menu-item><a-menu-item v-if="task.status==='running'" @click.stop="handlePause(task.id)"><PauseCircleOutlined /> 暂停</a-menu-item><a-menu-item v-if="task.status==='paused'" @click.stop="handleResume(task.id)"><PlayCircleOutlined /> 恢复</a-menu-item><a-menu-item v-if="!['completed','cancelled'].includes(task.status)" @click.stop="handleCancel(task.id)" danger><StopOutlined /> 取消</a-menu-item></a-menu></template></a-dropdown></div>
+          <div class="ct"><div class="cs"><span class="sd" :style="{background:gsd(task.status)}"></span><span class="st">{{ gst(task.status) }}</span></div><a-dropdown :trigger="['click']" @click.stop><button class="mb">&#8943;</button><template #overlay><a-menu><a-menu-item v-if="task.status==='pending'" @click.stop="handleStart(task.id)"><PlayCircleOutlined /> 启动</a-menu-item><a-menu-item v-if="task.status==='running'" @click.stop="handlePause(task.id)"><PauseCircleOutlined /> 暂停</a-menu-item><a-menu-item v-if="task.status==='paused'" @click.stop="handleResume(task.id)"><PlayCircleOutlined /> 恢复</a-menu-item><a-menu-item v-if="!['completed','cancelled'].includes(task.status)" @click.stop="handleCancel(task.id)" danger><StopOutlined /> 取消</a-menu-item><a-menu-divider v-if="['awaiting_approval','completed','failed','cancelled'].includes(task.status)" /><a-menu-item v-if="['awaiting_approval','completed','failed','cancelled'].includes(task.status)" @click.stop="handleDelete(task.id, task.status)" danger><DeleteOutlined /> 删除</a-menu-item></a-menu></template></a-dropdown></div>
           <h3 class="ct2">{{ task.title }}</h3>
           <div class="cp"><a-progress :percent="task.progress_percent" :status="task.status==='failed'?'exception':undefined" :show-info="false" size="small" /><span class="pl2">{{ task.progress_percent.toFixed(0) }}%</span></div>
           <div class="cm"><span>{{ task.completed_subtasks }}/{{ task.subtask_count }} 子任务</span><span>{{ new Date(task.created_at).toLocaleDateString() }}</span></div>
