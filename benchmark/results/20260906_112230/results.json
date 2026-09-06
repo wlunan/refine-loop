@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "benchmark_version": "2026.09.04.v1",
+  "created_at": "2026-09-06T03:22:30.432971+00:00",
+  "runtime": {
+    "python": "3.12.12",
+    "platform": "Windows-11-10.0.22631-SP0",
+    "max_repair_rounds": 3
+  },
+  "results": [
+    {
+      "task_name": "lru_cache",
+      "baseline": {
+        "passed": true,
+        "exit_code": 0,
+        "rounds": 1,
+        "detail": "退出码: 0\n【标准输出】\n...                                                                      [100%]\n3 passed in 0.02s\n",
+        "duration_seconds": 47.71899999998277
+      },
+      "self_healing": {
+        "passed": true,
+        "exit_code": 0,
+        "rounds": 1,
+        "detail": "退出码: 0\n【标准输出】\n...                                                                      [100%]\n3 passed in 0.01s\n",
+        "duration_seconds": 31.39000000001397
+      },
+      "repaired": false
+    },
+    {
+      "task_name": "binary_search",
+      "baseline": {
+        "passed": true,
+        "exit_code": 0,
+        "rounds": 1,
+        "detail": "退出码: 0\n【标准输出】\n....                                                                     [100%]\n4 passed in 0.02s\n",
+        "duration_seconds": 129.51600000000326
+      },
+      "self_healing": {
+        "passed": true,
+        "exit_code": 0,
+        "rounds": 1,
+        "detail": "退出码: 0\n【标准输出】\n....                                                                     [100%]\n4 passed in 0.01s\n",
+        "duration_seconds": 63.09399999998277
+      },
+      "repaired": false
+    },
+    {
+      "task_name": "reverse_linked_list",
+      "baseline": {
+        "passed": true,
+        "exit_code": 0,
+        "rounds": 1,
+        "detail": "退出码: 0\n【标准输出】\n...                                                                      [100%]\n3 passed in 0.01s\n",
+        "duration_seconds": 85.31200000000536
+      },
+      "self_healing": {
+        "passed": true,
+        "exit_code": 0,
+        "rounds": 1,
+        "detail": "退出码: 0\n【标准输出】\n...                                                                      [100%]\n3 passed in 0.01s\n",
+        "duration_seconds": 74.45300000000861
+      },
+      "repaired": false
+    },
+    {
+      "task_name": "valid_parentheses",
+      "baseline": {
+        "passed": true,
+        "exit_code": 0,
+        "rounds": 1,
+        "detail": "退出码: 0\n【标准输出】\n...                                                                      [100%]\n3 passed in 0.02s\n",
+        "duration_seconds": 65.5789999999979
+      },
+      "self_healing": {
+        "passed": true,
+        "exit_code": 0,
+        "rounds": 1,
+        "detail": "退出码: 0\n【标准输出】\n...                                                                      [100%]\n3 passed in 0.01s\n",
+        "duration_seconds": 53.89000000001397
+      },
+      "repaired": false
+    }
+  ]
+}

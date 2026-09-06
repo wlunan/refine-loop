@@ -16,17 +16,17 @@
 
 ### 核心组件
 
-| 组件 | 职责 |
-|------|------|
-| **GeneratorAgent** | 根据任务和批判反馈生成/优化产出，支持文本模式和文件操作模式 |
-| **CriticAgent** | 审查产出，输出结构化的批判结果（评分、问题、建议），含三级降级解析 |
-| **Orchestrator** | 控制迭代流程，管理状态，判断收敛，支持流式 token 回调与线程安全中断 |
-| **GeneratorCriticGraph** | 基于 LangGraph 的图状态机实现（可选） |
-| **TaskManager** | 长时间运行任务的全生命周期管理（创建→分解→执行→暂停/恢复/取消） |
-| **ToolAgent** | 混合模式工具调用执行器，支持原生 Function Calling 和 JSON 文本协议降级 |
-| **FileWorkspace** | 文件安全沙箱，限制 Agent 的所有文件操作在指定目录内 |
-| **可验证工具集** | `run_tests` / `run_lint` / `run_command` / `run_python`，让审查基于真实执行结果而非纯文本 |
-| **SelfHealingOrchestrator** | 代码自愈闭环：生成 → 验证 → 失败定位 → 修复 → 复跑 |
+| 组件                          | 职责                                                                       |
+| --------------------------- | ------------------------------------------------------------------------ |
+| **GeneratorAgent**          | 根据任务和批判反馈生成/优化产出，支持文本模式和文件操作模式                                           |
+| **CriticAgent**             | 审查产出，输出结构化的批判结果（评分、问题、建议），含三级降级解析                                        |
+| **Orchestrator**            | 控制迭代流程，管理状态，判断收敛，支持流式 token 回调与线程安全中断                                    |
+| **GeneratorCriticGraph**    | 基于 LangGraph 的图状态机实现（可选）                                                 |
+| **TaskManager**             | 长时间运行任务的全生命周期管理（创建→分解→执行→暂停/恢复/取消）                                       |
+| **ToolAgent**               | 混合模式工具调用执行器，支持原生 Function Calling 和 JSON 文本协议降级                          |
+| **FileWorkspace**           | 文件安全沙箱，限制 Agent 的所有文件操作在指定目录内                                            |
+| **可验证工具集**                  | `run_tests` / `run_lint` / `run_command` / `run_python`，让审查基于真实执行结果而非纯文本 |
+| **SelfHealingOrchestrator** | 代码自愈闭环：生成 → 验证 → 失败定位 → 修复 → 复跑                                          |
 
 ### 收敛机制
 
@@ -38,13 +38,13 @@
 
 ### 成本控制
 
-| 策略 | 说明 |
-|------|------|
-| **模型分级** | Generator 用强模型，Critic 可用弱模型（挑刺比创作对能力要求低） |
-| **Token 预算** | 总预算 + 单轮预算双重控制，超预算自动终止 |
-| **提前终止** | 质量达标 / 无新反馈立即停止，不浪费 token |
-| **最优版本返回** | 未收敛时返回历史评分最高的版本，而非最后一版（迭代非单调上升） |
-| **可中断** | `Orchestrator.stop()` 线程安全中断，Web 端支持用户主动停止 |
+| 策略           | 说明                                         |
+| ------------ | ------------------------------------------ |
+| **模型分级**     | Generator 用强模型，Critic 可用弱模型（挑刺比创作对能力要求低）   |
+| **Token 预算** | 总预算 + 单轮预算双重控制，超预算自动终止                     |
+| **提前终止**     | 质量达标 / 无新反馈立即停止，不浪费 token                  |
+| **最优版本返回**   | 未收敛时返回历史评分最高的版本，而非最后一版（迭代非单调上升）            |
+| **可中断**      | `Orchestrator.stop()` 线程安全中断，Web 端支持用户主动停止 |
 
 ## 项目结构
 
@@ -147,41 +147,42 @@ refine-loop-agent/
 
 ## 环境要求
 
-- **Python 3.10+**
-- **pip**（Python 包管理器）
-- 可用的 LLM API（OpenAI 或兼容 OpenAI 协议的其他模型服务）
+* **Python 3.10+**
+* **pip**（Python 包管理器）
+* 可用的 LLM API（OpenAI 或兼容 OpenAI 协议的其他模型服务）
 
 ## 快速开始
 
 ### 1. 克隆项目
 
-```bash
+```Shell
 git clone <repository-url>
 cd refine-loop-agent
 ```
 
 ### 2. 安装依赖
 
-```bash
+```Shell
 pip install -r requirements.txt
 ```
 
 核心依赖会自动安装：
-- `langchain` + `langchain-openai` — LLM 调用
-- `langgraph` — 图状态机工作流（可选功能）
-- `pydantic` — 数据校验
-- `fastapi` + `uvicorn` — Web 服务
-- `pytest` — 测试框架
+
+* `langchain` + `langchain-openai` — LLM 调用
+* `langgraph` — 图状态机工作流（可选功能）
+* `pydantic` — 数据校验
+* `fastapi` + `uvicorn` — Web 服务
+* `pytest` — 测试框架
 
 ### 3. 配置环境变量
 
-```bash
+```Shell
 cp .env.example .env
 ```
 
 编辑 `.env` 文件，填入你的 API 配置：
 
-```ini
+```Properties&#x20;files
 # 必填：API Key
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
 
@@ -200,7 +201,7 @@ DEBUG=false                     # 调试模式：true 时打印每轮详细信�
 
 **使用非 OpenAI 模型的示例**（如小米 MiMo）：
 
-```ini
+```Properties&#x20;files
 OPENAI_API_KEY=your_api_key_here
 OPENAI_API_BASE=https://api.xiaomimimo.com/v1
 GENERATOR_MODEL=mimo-v2.5-pro
@@ -212,15 +213,16 @@ CRITIC_MODEL=mimo-v2.5
 ### 4. 验证配置
 
 首次运行时，系统会自动校验配置：
-- API Key 是否已配置
-- 最大轮数是否 ≥ 1
-- 收敛阈值是否在 0-100 之间
+
+* API Key 是否已配置
+* 最大轮数是否 ≥ 1
+* 收敛阈值是否在 0-100 之间
 
 配置错误会立即报错并提示修正。
 
 ### 5. 运行终端示例
 
-```bash
+```Shell
 # 快速开始（单轮即可收敛的简单任务，推荐先跑这个验证环境）
 python examples/quick_start.py
 
@@ -255,13 +257,13 @@ python benchmark/run_benchmark.py
 
 前端为 Vue 3 + TypeScript 应用（`frontend`），使用 Ant Design Vue + Pinia + ECharts 构建，提供三个页面：
 
-- **工作台 `/`**：文本生成-批判迭代，SSE 实时流式显示 Generator 产出与 Critic 审查，评分趋势折线图（含收敛阈值参考线）、每轮问题/建议/总结、最终产出
-- **任务列表 `/tasks`**：长时间运行任务管理，创建任务、按状态筛选、启动/暂停/恢复/取消
-- **任务详情 `/tasks/:id`**：子任务进度、Token 消耗、实时执行日志（SSE 推送）、文件操作记录
+* **工作台** **`/`**：文本生成-批判迭代，SSE 实时流式显示 Generator 产出与 Critic 审查，评分趋势折线图（含收敛阈值参考线）、每轮问题/建议/总结、最终产出
+* **任务列表** **`/tasks`**：长时间运行任务管理，创建任务、按状态筛选、启动/暂停/恢复/取消
+* **任务详情** **`/tasks/:id`**：子任务进度、Token 消耗、实时执行日志（SSE 推送）、文件操作记录
 
 #### 6.1 环境准备
 
-```bash
+```Shell
 # Python 依赖（建议使用虚拟环境 / conda 环境）
 python -m pip install -r requirements.txt
 
@@ -274,7 +276,7 @@ npm install
 
 前端构建成静态文件，由统一后端托管，适合日常使用：
 
-```bash
+```Shell
 # 1. 构建前端（产物输出到 backend/static/dist）
 cd frontend
 npm run build
@@ -284,13 +286,13 @@ cd ..
 python backend/server.py
 ```
 
-访问 **http://127.0.0.1:8000** 即可使用完整界面。
+访问 **<http://127.0.0.1:8000>** 即可使用完整界面。
 
 #### 6.3 方式二：开发模式（前端热更新）
 
 修改前端代码时实时刷新，适合 UI 调试：
 
-```bash
+```Shell
 # 终端 A：统一后端（8000）
 conda activate agentchat
 python backend/server.py
@@ -300,21 +302,21 @@ cd frontend
 npm run dev
 ```
 
-访问 **http://127.0.0.1:5173**，改动代码自动热更新。
+访问 \*\*<http://127.0.0.1:5173**，改动代码自动热更新。>
 
 #### 6.4 页面访问地址
 
-| 页面 | 生产模式 | 开发模式 |
-|------|----------|----------|
-| 工作台 `/` | http://127.0.0.1:8000/ | http://127.0.0.1:5173/ |
-| 任务列表 `/tasks` | http://127.0.0.1:8000/tasks | http://127.0.0.1:5173/tasks |
-| 任务详情 `/tasks/:id` | 从任务列表进入 | 从任务列表进入 |
+| 页面                | 生产模式                          | 开发模式                          |
+| ----------------- | ----------------------------- | ----------------------------- |
+| 工作台 `/`           | <http://127.0.0.1:8000/>      | <http://127.0.0.1:5173/>      |
+| 任务列表 `/tasks`     | <http://127.0.0.1:8000/tasks> | <http://127.0.0.1:5173/tasks> |
+| 任务详情 `/tasks/:id` | 从任务列表进入                       | 从任务列表进入                       |
 
 > 说明：统一后端以 SPA 方式托管 `backend/static/dist` 下的前端构建产物；未执行 `npm run build` 时访问根路径会返回 404 提示。
 
 ### 7. 运行测试
 
-```bash
+```Shell
 # 运行所有测试（使用 Mock LLM，无需 API Key）
 pytest tests/ -v
 
@@ -332,9 +334,10 @@ pytest tests/ --cov=src --cov-report=term-missing
 ### Q: 运行时报 `未配置 OPENAI_API_KEY`
 
 确认 `.env` 文件已创建且 `OPENAI_API_KEY` 已填入有效值。注意：
-- `.env` 文件必须在项目根目录下
-- Key 值不要加引号（`OPENAI_API_KEY=sk-xxx`，不是 `OPENAI_API_KEY="sk-xxx"`）
-- 系统使用 `load_dotenv(override=True)`，`.env` 中的配置优先于系统环境变量
+
+* `.env` 文件必须在项目根目录下
+* Key 值不要加引号（`OPENAI_API_KEY=sk-xxx`，不是 `OPENAI_API_KEY="sk-xxx"`）
+* 系统使用 `load_dotenv(override=True)`，`.env` 中的配置优先于系统环境变量
 
 ### Q: 运行时报 `Connection error` 或请求超时
 
@@ -347,6 +350,7 @@ pytest tests/ --cov=src --cov-report=term-missing
 这是正常的。如果任务较简单，Generator 第一轮就产出高质量内容，Critic 打分 ≥ 85 且 `acceptable=true`，满足收敛条件会立即停止。
 
 想触发多轮迭代，可以：
+
 1. 使用更复杂的任务（如 `multi_round_demo.py` 中的架构设计任务）
 2. 提高收敛阈值（如设为 95）
 3. 在代码中修改 `config.orchestrator.convergence_score_threshold = 95`
@@ -354,22 +358,23 @@ pytest tests/ --cov=src --cov-report=term-missing
 ### Q: Critic 频繁返回"解析降级"（score=50, summary="解析降级"）
 
 这说明 Critic 模型的输出格式不稳定，无法解析为结构化 JSON。可能的原因：
-- Critic 模型能力较弱 → 尝试换用更强的模型（如将 `CRITIC_MODEL` 改为 `mimo-v2.5-pro`）
-- API 服务不稳定 → 检查网络和 API 状态
-- 模型不兼容 → 确认模型支持 JSON 格式输出
+
+* Critic 模型能力较弱 → 尝试换用更强的模型（如将 `CRITIC_MODEL` 改为 `mimo-v2.5-pro`）
+* API 服务不稳定 → 检查网络和 API 状态
+* 模型不兼容 → 确认模型支持 JSON 格式输出
 
 ### Q: Web 服务启动后页面无法访问
 
 1. 确认终端显示 `Uvicorn running on http://127.0.0.1:8000`
 2. 检查端口 8000 是否被占用，可在 `backend/server.py` 末尾修改端口号
-3. 尝试直接访问接口验证后端是否正常：http://127.0.0.1:8000/api/stream?task=test&domain=general
+3. 尝试直接访问接口验证后端是否正常：<http://127.0.0.1:8000/api/stream?task=test&domain=general>
 4. 若使用 Vue 前端，确认已执行 `npm run build` 生成 `backend/static/dist` 产物，或通过 `npm run dev` 访问 5173 端口
 
 ## 基本用法
 
 ### 命令式 API（推荐）
 
-```python
+```Python
 from src.orchestrator import Orchestrator
 
 # 创建编排器
@@ -388,7 +393,7 @@ print(result.summary())
 
 ### 从初始草稿开始优化
 
-```python
+```Python
 result = orchestrator.run(
     task="优化这段代码",
     initial_draft="def foo(): pass"  # 已有草稿，直接进入审查阶段
@@ -397,7 +402,7 @@ result = orchestrator.run(
 
 ### 实时回调
 
-```python
+```Python
 def on_round_complete(round_num, draft, critique):
     """每轮完成的回调，含完整草稿与审查结果"""
     print(f"第 {round_num} 轮: 评分 {critique.score}, 问题数 {len(critique.issues)}")
@@ -415,7 +420,7 @@ orchestrator = Orchestrator(
 
 ### 文件操作模式
 
-```python
+```Python
 orchestrator = Orchestrator(domain="code", max_rounds=3)
 
 result = orchestrator.run_with_files(
@@ -427,14 +432,14 @@ result = orchestrator.run_with_files(
 
 ### 中断运行
 
-```python
+```Python
 # 在另一个线程中请求停止（线程安全）
 orchestrator.stop()
 ```
 
 ### LangGraph 版本
 
-```python
+```Python
 from src.graph import GeneratorCriticGraph
 
 graph = GeneratorCriticGraph(domain="code", max_rounds=3)
@@ -447,7 +452,7 @@ best = graph.get_best_draft(state)
 
 ### 长时间运行任务
 
-```python
+```Python
 from src.manager.task_manager import TaskManager
 
 manager = TaskManager()
@@ -468,29 +473,29 @@ print(f"{progress.progress_percent}% - {progress.message}")
 
 ## 支持的领域
 
-| 领域 | 适用场景 | Generator 特点 | Critic 审查维度 |
-|------|---------|---------------|----------------|
-| `general` | 通用任务 | 结构化输出 | 正确性、完整性、可执行性、规范性、表达清晰度 |
-| `code` | 代码生成/审查 | 完整可运行代码、类型注解 | 正确性、性能、规范、安全性、可维护性 |
-| `writing` | 文案/文章写作 | 完整文案结构 | 逻辑说服力、表达质量、结构节奏、受众适配 |
-| `design` | 方案/架构设计 | 完整方案文档 | 可行性、完整性、可扩展性、性能、安全性 |
+| 领域        | 适用场景    | Generator 特点 | Critic 审查维度            |
+| --------- | ------- | ------------ | ---------------------- |
+| `general` | 通用任务    | 结构化输出        | 正确性、完整性、可执行性、规范性、表达清晰度 |
+| `code`    | 代码生成/审查 | 完整可运行代码、类型注解 | 正确性、性能、规范、安全性、可维护性     |
+| `writing` | 文案/文章写作 | 完整文案结构       | 逻辑说服力、表达质量、结构节奏、受众适配   |
+| `design`  | 方案/架构设计 | 完整方案文档       | 可行性、完整性、可扩展性、性能、安全性    |
 
 ## 配置说明
 
 ### 环境变量
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `OPENAI_API_KEY` | API 密钥（必填） | - |
-| `OPENAI_API_BASE` | API 基础地址（兼容其他模型） | - |
-| `GENERATOR_MODEL` | Generator 使用的模型 | `gpt-4o` |
-| `CRITIC_MODEL` | Critic 使用的模型 | `gpt-4o-mini` |
-| `LOG_LEVEL` | 日志级别 | `INFO` |
-| `DEBUG` | 调试模式 | `false` |
+| 变量                | 说明               | 默认值           |
+| ----------------- | ---------------- | ------------- |
+| `OPENAI_API_KEY`  | API 密钥（必填）       | -             |
+| `OPENAI_API_BASE` | API 基础地址（兼容其他模型） | -             |
+| `GENERATOR_MODEL` | Generator 使用的模型  | `gpt-4o`      |
+| `CRITIC_MODEL`    | Critic 使用的模型     | `gpt-4o-mini` |
+| `LOG_LEVEL`       | 日志级别             | `INFO`        |
+| `DEBUG`           | 调试模式             | `false`       |
 
 ### 编排器参数
 
-```python
+```Python
 Orchestrator(
     domain="general",               # 任务领域
     max_rounds=5,                   # 最大迭代轮数
@@ -505,15 +510,16 @@ Orchestrator(
 ### 配置校验
 
 `config/settings.py` 中的 `SystemConfig.validate()` 会在首次获取配置时自动执行，检查：
-- API Key 是否已配置
-- 最大轮数是否 ≥ 1
-- 收敛阈值是否在 0-100 之间
+
+* API Key 是否已配置
+* 最大轮数是否 ≥ 1
+* 收敛阈值是否在 0-100 之间
 
 配置错误会立即报错，而非运行到一半才崩溃。
 
 ## 运行测试
 
-```bash
+```Shell
 # 运行所有测试
 pytest tests/ -v
 
@@ -528,42 +534,42 @@ pytest tests/ --cov=src --cov-report=term-missing
 
 ## 技术栈
 
-| 技术 | 用途 |
-|------|------|
-| **Python 3.10+** | 运行环境 |
-| **LangChain** | LLM 统一调用抽象 |
-| **LangGraph** | 基于图的 Agent 工作流（可选） |
-| **Pydantic** | 数据验证、结构化输出、JSON Schema |
-| **FastAPI + SSE** | 流式 Web 服务 |
-| **Vue 3 + TypeScript + Vite** | 前端框架与构建 |
-| **Ant Design Vue** | UI 组件库 |
-| **Pinia** | 前端状态管理 |
-| **ECharts** | 评分趋势可视化 |
-| **python-dotenv** | 环境变量管理 |
-| **pytest** | 单元测试 |
+| 技术                            | 用途                     |
+| ----------------------------- | ---------------------- |
+| **Python 3.10+**              | 运行环境                   |
+| **LangChain**                 | LLM 统一调用抽象             |
+| **LangGraph**                 | 基于图的 Agent 工作流（可选）     |
+| **Pydantic**                  | 数据验证、结构化输出、JSON Schema |
+| **FastAPI + SSE**             | 流式 Web 服务              |
+| **Vue 3 + TypeScript + Vite** | 前端框架与构建                |
+| **Ant Design Vue**            | UI 组件库                 |
+| **Pinia**                     | 前端状态管理                 |
+| **ECharts**                   | 评分趋势可视化                |
+| **python-dotenv**             | 环境变量管理                 |
+| **pytest**                    | 单元测试                   |
 
 ## 扩展方向
 
 ### 短期（下一步开发重点）
 
-- **~~可验证工具集~~（已实现）**：`run_tests` / `run_lint` / `run_command` / `run_python` 验证工具 + 代码自愈闭环（`SelfHealingOrchestrator`）已落地，详见 `docs/ARCHITECTURE.md`
-- **审查标准外置化**：把各领域评审标准抽成可配置规范（YAML/JSON），Critic 逐条对照打分，用户可自定义领域标准
-- **CLI 入口**：`gc review <path>` 命令行工具，脱离 Web 直接集成到开发工作流 / CI
-- **~~评估框架~~（已实现）**：`benchmark/` 对比「单次生成 vs 自愈闭环」的测试通过率与修复率，输出量化报告
+* **~~可验证工具集~~（已实现）**：`run_tests` / `run_lint` / `run_command` / `run_python` 验证工具 + 代码自愈闭环（`SelfHealingOrchestrator`）已落地，详见 `docs/ARCHITECTURE.md`
+* **审查标准外置化**：把各领域评审标准抽成可配置规范（YAML/JSON），Critic 逐条对照打分，用户可自定义领域标准
+* **CLI 入口**：`gc review <path>` 命令行工具，脱离 Web 直接集成到开发工作流 / CI
+* **~~评估框架~~（已实现）**：`benchmark/` 对比「单次生成 vs 自愈闭环」的测试通过率与修复率，输出量化报告
 
 ### 中期
 
-- **多 Critic 并行**：多个 Critic 从不同维度审查，取问题并集
-- **Critic 分级**：初筛用弱模型，通过后用强模型终审
-- **多模型路由**：Generator 用强模型，Critic 用弱模型，按任务难度动态选择
-- **按需人工介入**：收敛不了 / 置信度低 / 高风险操作时暂停并请求人工确认
+* **多 Critic 并行**：多个 Critic 从不同维度审查，取问题并集
+* **Critic 分级**：初筛用弱模型，通过后用强模型终审
+* **多模型路由**：Generator 用强模型，Critic 用弱模型，按任务难度动态选择
+* **按需人工介入**：收敛不了 / 置信度低 / 高风险操作时暂停并请求人工确认
 
 ### 长期
 
-- **审查规范 RAG 化**：让 Critic 挂载领域知识库（公司代码规范、最佳实践文档）
-- **记忆与长任务**：断点续跑、跨会话积累迭代经验
-- **CI / GitHub Action 集成**：PR 自动审查 + 修复 + 复审直到达标
-- **Generator 全局记忆**：将历史 critique 摘要（尤其是已否定的点）注入提示词，避免重复犯错
+* **审查规范 RAG 化**：让 Critic 挂载领域知识库（公司代码规范、最佳实践文档）
+* **记忆与长任务**：断点续跑、跨会话积累迭代经验
+* **CI / GitHub Action 集成**：PR 自动审查 + 修复 + 复审直到达标
+* **Generator 全局记忆**：将历史 critique 摘要（尤其是已否定的点）注入提示词，避免重复犯错
 
 ## License
 

@@ -297,8 +297,11 @@ class TaskManager:
         if task.status != TaskStatus.PAUSED:
             raise ValueError(f"任务不在暂停状态: {task.status}")
         
-        # 重新启动
+        # 重新启动：TaskExecutor 会加载最近执行快照，从安全边界继续
         self.start_task(task_id, **kwargs)
+        
+        # 记录恢复事件，便于追踪恢复入口
+        self._emit_event("task_resumed", {"task_id": task_id})
         
         logger.info(f"任务已恢复: {task_id}")
     
