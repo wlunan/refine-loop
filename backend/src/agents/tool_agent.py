@@ -58,6 +58,8 @@ class ToolAgent:
         max_steps: int = 20,
         usage_callback: Optional[Callable[[Optional[dict]], None]] = None,
         checkpoint_callback: Optional[Callable[[ToolAgentState], None]] = None,
+        keep_recent_rounds: int = 6,
+        max_tool_result_chars: int = 6000,
     ):
         self.llm = llm
         self.tools = tools
@@ -68,8 +70,71 @@ class ToolAgent:
         self.usage_callback = usage_callback
         self.checkpoint_callback = checkpoint_callback
 
+        # 上下文滑窗参数：防止长工具循环把上下文撑爆（详见 _trim_messages）
+        self.keep_recent_rounds = keep_recent_rounds  # 保留最近的模型往返轮数（0=关闭）
+        self.max_tool_result_chars = max_tool_result_chars  # 单条工具结果的字符上限（0=不截断）
+
         # 原生 tool call 是否已确认失败（失败后永久走文本协议）
         self._native_failed = False
+
+    # ------------------------------------------------------------------
+    # 上下文滑窗（内存管理）
+    # ------------------------------------------------------------------
+    def _trim_messages(self, messages: list[BaseMessage]) -> None:
+        """在每次调用模型前压缩历史，防止上下文无界增长。
+
+        策略（按“可丢弃性”优先级）：
+        1. 单条超长工具结果：截断到 max_tool_result_chars（read_file 可达 100K，
+           是单条消息的最大来源）；
+        2. 最老的模型往返：只保留最近的 keep_recent_rounds 个 AI 回合（含其
+           后的工具结果），更早的 AI/工具消息整体剔除；
+        3. SystemMessage / HumanMessage（任务描述、历史人话）永远保留——
+           它们是“身份与任务”，裁剪只会破坏上下文。
+
+        修改是原地的，因此同步到 state/检查点的消息与真实发给模型的一致。
+        """
+        # 1) 截断单条超长工具结果
+        if self.max_tool_result_chars and self.max_tool_result_chars > 0:
+            for i, message in enumerate(messages):
+                if (
+                    isinstance(message, ToolMessage)
+                    and isinstance(message.content, str)
+                    and len(message.content) > self.max_tool_result_chars
+                ):
+                    content = message.content
+                    messages[i] = ToolMessage(
+                        content=(
+                            content[: self.max_tool_result_chars]
+                            + f"\n... [工具结果已截断，原长 {len(content)} 字符，"
+                              f"超出单条上限 {self.max_tool_result_chars}]"
+                        ),
+                        tool_call_id=message.tool_call_id,
+                        name=message.name,
+                    )
+
+        # 2) 丢弃最老的模型往返（只在需要时才动）
+        if self.keep_recent_rounds <= 0:
+            return
+        ai_indices = [
+            i for i, message in enumerate(messages)
+            if isinstance(message, AIMessage)
+        ]
+        if len(ai_indices) <= self.keep_recent_rounds:
+            return
+        boundary = ai_indices[-self.keep_recent_rounds]
+
+        protected = [
+            message for message in messages[:boundary]
+            if isinstance(message, (SystemMessage, HumanMessage))
+        ]
+        if not protected and boundary == 0:
+            return
+        dropped = boundary - len(protected)
+        messages[:] = protected + messages[boundary:]
+        logger.debug(
+            f"上下文滑窗：丢弃 {dropped} 条最早的工具往返消息，"
+            f"当前保留 {len(messages)} 条（最近 {self.keep_recent_rounds} 个 AI 回合）"
+        )
 
     # ------------------------------------------------------------------
     # 事件推送
@@ -109,6 +174,9 @@ class ToolAgent:
         for step in range(state.current_step, self.max_steps):
             state.current_step = step
             state.phase = "model_call"
+            # 上下文滑窗：每次调用前压缩历史；先裁剪再保存检查点，
+            # 保证持久化/恢复侧看到的也是裁剪后的消息（避免恢复时带回全量）
+            self._trim_messages(messages)
             self._checkpoint(state, messages)
             response = self._invoke_once(messages)
 

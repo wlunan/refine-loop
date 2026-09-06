@@ -49,6 +49,39 @@ class VerificationResult(BaseModel):
             lines.append(f"标准错误:\n{self.stderr}")
         return "\n".join(lines)
 
+    def failure_summary(self, max_lines: int = 8, max_chars: int = 4000) -> str:
+        """只提炼失败要点，供下一轮修复的 feedback 使用。
+
+        与 evidence() 不同：丢弃成功输出与收集噪音，仅保留断言/异常/FAILED
+        等关键行，避免多轮修复时失败日志线性撑爆任务文本（上下文管理的一环）。
+        """
+        if self.passed:
+            return f"{self.label}：通过"
+        lines = [f"{self.label}：失败"]
+        if self.exit_code is not None:
+            lines.append(f"退出码: {self.exit_code}")
+        text = f"{self.stderr}\n{self.stdout}"
+
+        def _is_key(line: str) -> bool:
+            s = line.strip()
+            if not s or s.startswith(("=", "-")):
+                return False
+            return s.startswith(
+                ("FAILED", "ERROR", "assert", "E ", "Error", "Exception", "Traceback", "raise")
+            ) or any(
+                word in s for word in ("assert", "Error", "Exception", " failed", "FAILED")
+            )
+
+        key_lines = [line.strip() for line in text.splitlines() if _is_key(line)]
+        if not key_lines:
+            # 兜底：取前若干非空行
+            key_lines = [
+                line.strip() for line in text.splitlines() if line.strip()
+            ][:max_lines]
+        summary = "\n".join(key_lines[-max_lines:])
+        lines.append(f"失败要点:\n{summary[:max_chars]}")
+        return "\n".join(lines)
+
 
 class VerificationSummary(BaseModel):
     """一轮中所有验证步骤的汇总。"""
@@ -65,8 +98,11 @@ class VerificationSummary(BaseModel):
         return all(result.passed for result in self.results if result.required)
 
     def evidence(self) -> str:
-        """拼接失败证据，供下一轮修复使用。"""
-        failed = [result.evidence() for result in self.results if not result.passed]
+        """拼接失败证据，供下一轮修复使用。
+
+        使用 failure_summary（失败要点）而非全量 stdout，控制回注文本体积。
+        """
+        failed = [result.failure_summary() for result in self.results if not result.passed]
         return "\n\n".join(failed) or "所有验证均通过"
 
 

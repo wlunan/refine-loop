@@ -63,6 +63,33 @@ class CommandResult:
             lines.append(f"【标准错误】\n{self.stderr}")
         return "\n".join(lines)
 
+    def failure_summary(self, max_lines: int = 8, max_chars: int = 4000) -> str:
+        """只提炼失败要点（断言/异常/FAILED 行），供修复 feedback 使用。
+
+        与 to_str 的区别：丢弃成功输出与收集噪音，控制多轮自愈时任务文本
+        不随每轮失败日志线性膨胀（上下文管理的一环）。
+        """
+        lines = [f"命令: {self.command}"]
+        if self.exit_code is not None:
+            lines.append(f"退出码: {self.exit_code}")
+        if self.timed_out:
+            lines.append("（命令执行超时，已强制终止）")
+        text = f"{self.stderr}\n{self.stdout}"
+
+        def _is_key(line: str) -> bool:
+            s = line.strip()
+            if not s or s.startswith(("=", "-")):
+                return False
+            return s.startswith(
+                ("FAILED", "ERROR", "assert", "E ", "Error", "Exception", "Traceback", "raise")
+            ) or any(word in s for word in ("assert", "Error", "Exception", " failed"))
+
+        key_lines = [line.strip() for line in text.splitlines() if _is_key(line)]
+        if not key_lines:
+            key_lines = [line.strip() for line in text.splitlines() if line.strip()][:max_lines]
+        lines.append(f"失败要点:\n{chr(10).join(key_lines[-max_lines:])[:max_chars]}")
+        return "\n".join(lines)
+
 
 class CommandRunner:
     """

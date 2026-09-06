@@ -18,7 +18,7 @@ import glob
 import hashlib
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from langchain_core.tools import tool
 
@@ -334,6 +334,85 @@ class FileWorkspace:
 
         if not parts:
             return "（工作区为空，尚无文件）"
+        return "\n".join(parts)
+
+    def snapshot_focused(
+        self,
+        focus_paths: Iterable[str],
+        budget_chars: int = 100_000,
+        max_files: int = 30,
+    ) -> str:
+        """构造"焦点快照"：改动/新增文件优先，其余文件按预算补齐。
+
+        用于 Critic 审查（上下文管理）：大项目不再把整个工作区一次性塞进
+        prompt，而是优先展示真正被 Generator 改动/创建的文件（放在最前，
+        保证不超过预算也能被看到），剩余预算再按名字顺序补齐其余文件；
+        超预算/超数量时明确标注省略，Agent 需要时可用工具按需读取。
+
+        Args:
+            focus_paths: 优先纳入的文件（相对路径，按传入顺序）
+            budget_chars: 内容总预算（字符）
+            max_files: 最多纳入的文件数
+        """
+        parts: List[str] = []
+
+        # 收集候选文本文件
+        candidates = set()
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            dirnames[:] = [d for d in dirnames if d not in PROTECTED_DIRS]
+            for name in sorted(filenames):
+                candidates.add(os.path.relpath(os.path.join(dirpath, name), self.root))
+
+        # 焦点文件优先（存在才纳入），其余按名排序补齐
+        order: List[str] = []
+        focus_included = 0
+        for raw in focus_paths:
+            path = os.path.normpath(raw)
+            if path in candidates:
+                order.append(path)
+                candidates.discard(path)
+                focus_included += 1
+        order += sorted(candidates)
+
+        # 头部：告知 Critic 工作区规模与焦点，便于判断是否需要按需读取其余文件
+        header = (
+            f"===== 文件清单：共 {len(order)} 个文本文件"
+            + (f"，其中 {focus_included} 个为本轮改动/新增（优先展示）" if focus_included else "")
+            + " ====="
+        )
+        parts.append(header + "\n")
+        remain = budget_chars - len(parts[-1])
+
+        count = 0
+        skipped = 0
+        for rel in order:
+            if count >= max_files or remain <= 0:
+                skipped += 1
+                continue
+            full = os.path.join(self.root, rel)
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                continue
+            if size <= 0 or size > MAX_READ_CHARS * 2:
+                skipped += 1
+                continue
+            try:
+                with open(full, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+            except OSError:
+                continue
+            if len(content) > remain:
+                # 超预算的单文件：展示开头部分并注明可单独读取
+                content = content[:max(0, remain)] + "\n... [超预算省略，可单独读取该文件]"
+            section = f"===== 文件: {rel} =====\n{content}\n"
+            parts.append(section)
+            remain -= len(section)
+            count += 1
+        if skipped:
+            parts.append(
+                f"... [已展示 {count}/{len(order)} 个文件；其余 {skipped} 个因预算/文件数限制省略，可按需单独读取]"
+            )
         return "\n".join(parts)
 
 

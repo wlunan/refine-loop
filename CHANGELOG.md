@@ -11,6 +11,10 @@
 - **评估框架 / benchmark**（`benchmark/`）：对比「单次生成 vs 自愈闭环」的测试通过率与修复率，输出量化报告
 - **benchmark 任务集重构**（`benchmark/tasks.py`、`benchmark/runner.py`）：任务集升级为难度分层的 5 道题（简单对照/多边界/修复 bug/多文件），`runner.py` 支持 `seed_files` 预置待修复文件
 - **验证驱动修复闭环 Web 可视化**：任务详情页新增「验证驱动修复闭环」面板（`RepairLoopPanel.vue`），逐轮展示「文件改动 → 验证命令/退出码/失败证据 → 复跑 → 通过/达上限」；后端 `verification_completed` 事件新增轻量 `steps` 摘要（退出码直接进事件，stdout/stderr 仍走 artifact 按需读取）
+- **上下文管理（长工具循环 / 大项目不撞窗口）**：
+  - `ToolAgent` 消息滑窗：每次调用模型前压缩历史——单条超长工具结果截断（默认 6K 字符），最早的工具往返按“保留最近 N 个 AI 回合”整体剔除，System/Human（任务）永远保留；先裁剪再保存检查点，恢复侧一致
+  - Critic 快照焦点化：`run_with_files` 收集本轮 write/edit/delete 文件，构造“焦点快照”（改动文件优先 + 预算/文件数内补齐其余 + 标注省略），大项目不再整仓库塞给 Critic（`FileWorkspace.snapshot_focused`）
+  - 失败证据摘要：`VerificationResult.failure_summary` / `CommandResult.failure_summary` 只提炼断言/异常/FAILED 关键行，验证回注与自愈 feedback 从“8K 原始输出”降为“失败要点”，避免多轮修复任务文本线性膨胀
 - **可观测性基础设施**（`src/observability.py` + `server.py`）：
   - 链路上下文：`request_id|task_id|subtask_id|round` 经 contextvars 自动注入日志（HTTP 中间件、TaskManager 线程、TaskExecutor、Orchestrator 各轮均设置）
   - 指标聚合器（线程安全 Counter/Histogram/Gauge），LLM 调用（次数/token/耗时/失败）与任务创建/启动/终结以事件流为单一事实源埋点

@@ -363,6 +363,8 @@ class Orchestrator:
             draft="",
             max_rounds=self.max_rounds,
         )
+        # 累计被 Generator 写/改/删过的文件（保序），用于 Critic 焦点快照
+        changed_files: dict = {}
 
         while state.current_round < self.max_rounds:
             # 检查停止与总 token 预算
@@ -386,6 +388,13 @@ class Orchestrator:
             )
 
             def _on_event(event: dict) -> None:
+                # 收集本轮实际写/改/删的文件，供 Critic 焦点快照优先展示
+                if event.get("type") == "tool_call":
+                    tool = event.get("tool", "")
+                    if tool in ("write_file", "edit_file", "delete_file"):
+                        path = (event.get("arguments") or {}).get("path")
+                        if path:
+                            changed_files[path] = None
                 if on_generator_event:
                     event = dict(event)
                     event["round"] = round_num
@@ -412,8 +421,13 @@ class Orchestrator:
                 state.convergence_reason = "用户主动停止"
                 break
 
-            # 2. 打包工作区文件快照作为"草稿"
-            snapshot = workspace.snapshot()
+            # 2. 打包工作区快照作为"草稿"：有实际改动时用焦点快照（目录树 +
+            # 改动文件优先 + 预算内补齐），避免大项目把整仓库一次塞给 Critic
+            snapshot = (
+                workspace.snapshot_focused(list(changed_files))
+                if changed_files
+                else workspace.snapshot()
+            )
             state.draft = snapshot
 
             # 3. Critic 审查快照

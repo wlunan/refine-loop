@@ -204,11 +204,15 @@ class SelfHealingOrchestrator:
     # 反馈构造
     # ------------------------------------------------------------------
     def _build_feedback(self, task: str, result: CommandResult) -> str:
-        """把验证失败日志拼进任务，驱动 Generator 定位并修复"""
+        """把验证失败要点拼进任务，驱动 Generator 定位并修复
+
+        使用 failure_summary 提炼断言/异常关键行，避免多轮自愈时把大段
+        原始输出反复叠加进任务文本导致上下文膨胀。
+        """
         return (
             f"{task}\n\n"
             f"【上一轮验证结果】验证未通过，请修复代码：\n"
-            f"{result.to_str()}\n\n"
+            f"{result.failure_summary()}\n\n"
             f"请根据以上失败信息，定位并修复工作区中的相关代码文件。"
             f"修复完成后系统会再次运行验证，目标是让验证命令通过。"
         )
