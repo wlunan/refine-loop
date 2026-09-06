@@ -20,6 +20,24 @@ ExecutionPhase = Literal[
     "state_change",
 ]
 
+ToolExecutionStatus = Literal[
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "unknown",
+    "skipped",
+]
+
+ToolSideEffectClass = Literal[
+    "read_only",
+    "idempotent_file_write",
+    "idempotent_file_edit",
+    "idempotent_file_delete",
+    "repeatable_verification",
+    "unknown",
+]
+
 
 class ConversationMessage(BaseModel):
     """可跨 LangChain 版本持久化的消息记录。"""
@@ -38,6 +56,20 @@ class ConversationMessage(BaseModel):
     round: int = Field(default=0, ge=0)
     step: int = Field(default=0, ge=0)
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+class ToolExecutionRecord(BaseModel):
+    """工具调用状态，用于崩溃恢复时判断是否可以重放。"""
+
+    call_id: str
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    status: ToolExecutionStatus = "pending"
+    result: str = ""
+    idempotency_key: str
+    side_effect_class: ToolSideEffectClass = "unknown"
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 class ExecutionRecord(BaseModel):
@@ -83,4 +115,6 @@ class ToolAgentState(BaseModel):
     messages: list[ConversationMessage] = Field(default_factory=list)
     current_step: int = Field(default=0, ge=0)
     phase: str = "generating"
+    pending_tools: list[ToolExecutionRecord] = Field(default_factory=list)
+    completed_tools: list[ToolExecutionRecord] = Field(default_factory=list)
     resumable: bool = True

@@ -128,6 +128,7 @@ class TaskExecutor:
         self._subtask_token_totals: Dict[tuple[str, str], int] = {}
         self._attempt_ids: Dict[tuple[str, str], str] = {}
         self._history_sequences: Dict[tuple[str, str], int] = {}
+        self._persisted_tool_calls: Dict[tuple[str, str], set[str]] = {}
     
     def stop(self) -> None:
         """请求停止执行"""
@@ -160,6 +161,13 @@ class TaskExecutor:
         self._history_sequences[history_key] = self._next_history_sequence(
             task_id, subtask.id
         )
+        self._persisted_tool_calls[history_key] = {
+            record.call_id
+            for record in (
+                self.store.list_tool_records(task_id, subtask.id)
+                if self.store else []
+            )
+        }
         
         # 发送开始事件
         self._emit_progress("subtask_started", {
@@ -191,6 +199,10 @@ class TaskExecutor:
                     messages=execution_snapshot.messages,
                     current_step=execution_snapshot.step,
                     phase=execution_snapshot.phase,
+                    completed_tools=(
+                        self.store.list_tool_records(task_id, subtask.id)
+                        if self.store else []
+                    ),
                     resumable=execution_snapshot.resumable,
                 )
             
@@ -276,6 +288,7 @@ class TaskExecutor:
             self._subtask_token_totals.pop((task_id, subtask.id), None)
             self._attempt_ids.pop(history_key, None)
             self._history_sequences.pop(history_key, None)
+            self._persisted_tool_calls.pop(history_key, None)
         
         return subtask
     
@@ -442,6 +455,14 @@ class TaskExecutor:
         attempt_id = self._attempt_ids.get((task_id, subtask_id))
         if not self.store or not attempt_id:
             return
+        persisted_calls = self._persisted_tool_calls.setdefault(
+            (task_id, subtask_id), set()
+        )
+        for tool_record in state.completed_tools:
+            if tool_record.call_id in persisted_calls:
+                continue
+            self.store.append_tool_record(tool_record, task_id, subtask_id)
+            persisted_calls.add(tool_record.call_id)
         self.store.save_execution_snapshot(
             ExecutionSnapshot(
                 task_id=task_id,

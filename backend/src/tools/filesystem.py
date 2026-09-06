@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import glob
+import hashlib
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -88,6 +89,74 @@ class FileWorkspace:
     def _rel(self, path: str) -> str:
         """返回相对根目录的路径（用于日志与展示）"""
         return os.path.relpath(path, self.root)
+
+    def file_sha256(self, path: str) -> Optional[str]:
+        """返回工作区内文本文件的 SHA-256，文件不存在时返回 None。"""
+        target = self._resolve_safe(path)
+        if not os.path.isfile(target):
+            return None
+        try:
+            with open(target, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except OSError:
+            return None
+
+    def write_file_recovery(self, path: str, content: str) -> str:
+        """判断 write_file 在崩溃恢复时应如何处理。
+
+        Returns:
+            "completed": 目标内容已写入，不应重复执行
+            "replay":     文件仍为旧状态或不存在，可以安全重放
+            "conflict":   文件内容与目标、旧状态都不匹配，需要人工确认
+        """
+        target = self._resolve_safe(path)
+        if not os.path.isfile(target):
+            return "replay"
+        try:
+            with open(target, "r", encoding="utf-8", errors="replace") as f:
+                current_content = f.read()
+        except OSError:
+            return "conflict"
+        if current_content == content:
+            return "completed"
+        return "conflict"
+
+    def edit_file_recovery(self, path: str, old_text: str, new_text: str) -> str:
+        """判断 edit_file 在崩溃恢复时应如何处理。
+
+        Returns:
+            "completed": 新文本已存在，不应重复替换
+            "replay":     旧文本仍唯一存在，可以安全替换
+            "conflict":   旧文本不存在或出现多次，需要人工确认
+        """
+        target = self._resolve_safe(path)
+        if not os.path.isfile(target):
+            return "conflict"
+        try:
+            with open(target, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except OSError:
+            return "conflict"
+        if new_text in content:
+            return "completed"
+        if content.count(old_text) == 1:
+            return "replay"
+        return "conflict"
+
+    def delete_file_recovery(self, path: str) -> str:
+        """判断 delete_file 在崩溃恢复时应如何处理。
+
+        Returns:
+            "completed": 目标文件已不存在
+            "replay":     文件仍存在，可以安全删除
+            "conflict":   文件存在但无法确认来源，需要人工确认
+        """
+        target = self._resolve_safe(path)
+        if not os.path.exists(target):
+            return "completed"
+        if os.path.isfile(target):
+            return "replay"
+        return "conflict"
 
     # ------------------------------------------------------------------
     # 文件操作（供工具调用）

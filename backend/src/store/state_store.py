@@ -28,6 +28,7 @@ from src.models.execution import (
     ConversationMessage,
     ExecutionRecord,
     ExecutionSnapshot,
+    ToolExecutionRecord,
 )
 
 logger = logging.getLogger(__name__)
@@ -227,6 +228,13 @@ class StateStore:
             record,
         )
 
+    def append_tool_record(self, record: ToolExecutionRecord, task_id: str, subtask_id: str) -> None:
+        """Append one tool lifecycle record to the execution journal."""
+        self._append_jsonl(
+            self._execution_subtask_dir(task_id, subtask_id) / "tools.jsonl",
+            record,
+        )
+
     @staticmethod
     def _read_jsonl(path: Path, model_type: type[BaseModel]) -> list[BaseModel]:
         if not path.exists():
@@ -276,6 +284,19 @@ class StateStore:
         if attempt_id:
             executions = [record for record in executions if record.attempt_id == attempt_id]
         return sorted(executions, key=lambda record: record.sequence)[-limit:]
+
+    def list_tool_records(
+        self,
+        task_id: str,
+        subtask_id: str,
+        limit: int = 200,
+    ) -> List[ToolExecutionRecord]:
+        records = self._read_jsonl(
+            self._execution_subtask_dir(task_id, subtask_id) / "tools.jsonl",
+            ToolExecutionRecord,
+        )
+        tools = [record for record in records if isinstance(record, ToolExecutionRecord)]
+        return tools[-limit:]
 
     def save_execution_snapshot(self, snapshot: ExecutionSnapshot) -> None:
         """Atomically save the latest lightweight recovery snapshot."""

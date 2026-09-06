@@ -21,13 +21,14 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.messages.base import BaseMessage
 
-from src.models.execution import ConversationMessage, ToolAgentState
+from src.models.execution import ConversationMessage, ToolAgentState, ToolExecutionRecord
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ class ToolAgent:
 
             # 1) 原生 tool call 命中
             if tool_calls:
-                self._execute_native_tool_calls(messages, response, tool_calls)
+                self._execute_native_tool_calls(messages, response, tool_calls, state, step)
                 self._sync_messages(state, messages, step, "tool_result")
                 continue
 
@@ -132,7 +133,7 @@ class ToolAgent:
             messages.append(response)
             command = self._try_parse_command(content)
             if command is not None:
-                observation = self._execute_command(command)
+                observation = self._execute_command(command, state, step)
                 messages.append(AIMessage(content=json.dumps(observation, ensure_ascii=False)))
                 self._sync_messages(state, messages, step, "tool_result")
                 continue
@@ -282,16 +283,23 @@ class ToolAgent:
     # 工具执行
     # ------------------------------------------------------------------
     def _execute_native_tool_calls(
-        self, messages: list, response: AIMessage, tool_calls: list
+        self,
+        messages: list,
+        response: AIMessage,
+        tool_calls: list,
+        state: ToolAgentState,
+        step: int,
     ) -> None:
         """执行原生 tool_calls 并把结果追加回消息列表"""
         messages.append(response)
         for tc in tool_calls:
             name = tc.get("name", "")
             args = tc.get("args", {}) or {}
+            record = self._start_tool_record(state, name, args, tc.get("id", ""), step)
             self._emit({"type": "tool_call", "tool": name, "arguments": args})
 
             observation = self._run_tool(name, args)
+            self._finish_tool_record(state, record, observation)
             self._emit({"type": "tool_result", "tool": name, "result": observation})
 
             # 追加 ToolMessage
@@ -304,14 +312,63 @@ class ToolAgent:
             except ImportError:  # 极端兜底：用 HumanMessage
                 messages.append(HumanMessage(content=f"工具 {name} 结果：\n{observation}"))
 
-    def _execute_command(self, command: dict) -> str:
+    def _execute_command(self, command: dict, state: ToolAgentState, step: int) -> str:
         """执行 JSON 文本协议命令，返回观察结果"""
         name = command.get("tool", "")
         args = command.get("arguments", {}) or {}
+        record = self._start_tool_record(state, name, args, "", step)
         self._emit({"type": "tool_call", "tool": name, "arguments": args})
         observation = self._run_tool(name, args)
+        self._finish_tool_record(state, record, observation)
         self._emit({"type": "tool_result", "tool": name, "result": observation})
         return f"工具 {name} 执行结果：\n{observation}"
+
+    @staticmethod
+    def _start_tool_record(
+        state: ToolAgentState,
+        name: str,
+        args: dict,
+        call_id: str,
+        step: int,
+    ) -> ToolExecutionRecord:
+        record = ToolExecutionRecord(
+            call_id=call_id or f"text_{uuid.uuid4().hex}",
+            tool_name=name,
+            arguments=args,
+            status="running",
+            idempotency_key=f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}",
+            side_effect_class=ToolAgent._tool_side_effect_class(name),
+            started_at=datetime.now(),
+        )
+        state.pending_tools.append(record)
+        state.phase = "tool_executing"
+        return record
+
+    @staticmethod
+    def _finish_tool_record(
+        state: ToolAgentState,
+        record: ToolExecutionRecord,
+        result: str,
+    ) -> None:
+        record.result = result
+        record.status = "completed" if not result.startswith("错误：") else "failed"
+        record.completed_at = datetime.now()
+        state.pending_tools = [item for item in state.pending_tools if item is not record]
+        state.completed_tools.append(record)
+
+    @staticmethod
+    def _tool_side_effect_class(name: str) -> str:
+        return {
+            "list_directory": "read_only",
+            "read_file": "read_only",
+            "search_files": "read_only",
+            "write_file": "idempotent_file_write",
+            "edit_file": "idempotent_file_edit",
+            "delete_file": "idempotent_file_delete",
+            "run_tests": "repeatable_verification",
+            "run_lint": "repeatable_verification",
+            "run_python": "repeatable_verification",
+        }.get(name, "unknown")
 
     def _run_tool(self, name: str, args: dict) -> str:
         """执行单个工具，返回结果文本（出错时返回错误文本，不中断循环）"""
