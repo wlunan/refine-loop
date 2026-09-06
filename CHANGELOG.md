@@ -9,6 +9,8 @@
 - **代码自愈闭环**（`src/orchestrator/self_healing.py`）：`SelfHealingOrchestrator` 实现「生成 → 验证 → 失败定位 → 修复 → 复跑」
 - 文件模式 Generator 支持 `enable_verification`，写完代码后可主动跑测试验证；文件模式 prompt 增加「先验证再交付」
 - **评估框架 / benchmark**（`benchmark/`）：对比「单次生成 vs 自愈闭环」的测试通过率与修复率，输出量化报告
+- **benchmark 任务集重构**（`benchmark/tasks.py`、`benchmark/runner.py`）：任务集升级为难度分层的 5 道题（简单对照/多边界/修复 bug/多文件），`runner.py` 支持 `seed_files` 预置待修复文件
+- **验证驱动修复闭环 Web 可视化**：任务详情页新增「验证驱动修复闭环」面板（`RepairLoopPanel.vue`），逐轮展示「文件改动 → 验证命令/退出码/失败证据 → 复跑 → 通过/达上限」；后端 `verification_completed` 事件新增轻量 `steps` 摘要（退出码直接进事件，stdout/stderr 仍走 artifact 按需读取）
 - 架构文档 `docs/ARCHITECTURE.md`、接口文档 `docs/API.md`、项目上下文 `CONTEXT.md`、决策记录 `docs/adr/`
 
 ### 修复

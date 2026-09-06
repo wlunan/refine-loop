@@ -437,6 +437,21 @@ class TaskExecutor:
             "passed": summary.passed,
             "profile": summary.profile,
             "result_count": len(summary.results),
+            # 轻量步骤摘要：退出码 / 通过与否直接进事件 data，供前端
+            # 实时展示「验证命令 + 退出码」；完整 stdout/stderr 证据仍走
+            # artifacts，避免撑爆 SSE 与事件日志文件。
+            "steps": [
+                {
+                    "step_id": result.step_id,
+                    "label": result.label,
+                    "required": result.required,
+                    "passed": result.passed,
+                    "exit_code": result.exit_code,
+                    "timed_out": result.timed_out,
+                    "duration_seconds": round(result.duration_seconds, 2),
+                }
+                for result in summary.results
+            ],
             "artifacts": [
                 {
                     "kind": "verification_results",

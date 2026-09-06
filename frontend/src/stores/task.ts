@@ -13,6 +13,22 @@ export interface SubTask {
   error: string | null
 }
 
+/** 与后端 RunConfig 对齐的轻量运行配置（用于前端展示验证命令等）。 */
+export interface RunConfigInfo {
+  max_rounds: number
+  score_threshold: number
+  round_token_budget: number
+  total_token_budget: number
+  verification_profile: 'none' | 'python_pytest' | 'python_lint' | 'node_build'
+  verification_steps: Array<{
+    id: string
+    label: string
+    command: string
+    required: boolean
+    timeout_seconds: number
+  }>
+}
+
 export interface Task {
   id: string
   title: string
@@ -21,7 +37,7 @@ export interface Task {
   progress_percent: number
   workspace_dir: string
   domain: string
-  run_config: { verification_profile: string; max_rounds: number; score_threshold: number } | null
+  run_config: RunConfigInfo | null
   metadata: Record<string, unknown>
   changeset: {
     diff: string

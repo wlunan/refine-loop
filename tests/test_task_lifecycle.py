@@ -331,6 +331,24 @@ def test_task_events_survive_a_new_store_instance(tmp_path):
     assert events[0]["created_at"]
 
 
+def test_verification_event_summary_reflects_passed_state(tmp_path):
+    """验证事件摘要直接带通过/失败结论，供 Trace/闭环面板一屏读取。"""
+    store = StateStore(str(tmp_path / "state"))
+    ok = store.append_event(
+        "v_task",
+        "verification_completed",
+        {"task_id": "v_task", "passed": True, "profile": "python_pytest"},
+    )
+    bad = store.append_event(
+        "v_task",
+        "verification_completed",
+        {"task_id": "v_task", "passed": False, "profile": "python_pytest"},
+    )
+    assert ok["category"] == "verification"
+    assert ok["summary"] == "确定性验证：通过"
+    assert bad["summary"] == "确定性验证：失败"
+
+
 def test_trace_event_stores_large_payloads_as_artifacts(tmp_path):
     store = StateStore(str(tmp_path / "state"))
 

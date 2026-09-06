@@ -457,7 +457,9 @@ class StateStore:
             "subtask_progress": f"完成第 {data.get('round', '?')} 轮生成与审查",
             "file_operation": f"调用工具 {data.get('operation', 'unknown')}",
             "file_result": f"工具 {data.get('operation', 'unknown')} 返回结果",
-            "verification_completed": "完成确定性验证",
+            "verification_completed": (
+                "确定性验证：" + ("通过" if data.get("passed") else "失败")
+            ),
             "subtask_started": f"开始子任务 {data.get('title', data.get('subtask_id', ''))}",
             "subtask_completed": "子任务完成",
             "subtask_failed": "子任务失败",

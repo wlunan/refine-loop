@@ -16,7 +16,12 @@ import pytest
 from src.agents.critic import CriticAgent
 from src.agents.generator import GeneratorAgent
 from src.models.schemas import CritiqueResult
-from src.models.run import RunConfig, VerificationStep
+from src.models.run import (
+    RunConfig,
+    VerificationResult,
+    VerificationStep,
+    VerificationSummary,
+)
 from src.models.task import SubTask, TaskStatus
 from src.orchestrator import Orchestrator
 from src.executor.task_executor import TaskContext, TaskExecutor
@@ -355,3 +360,54 @@ class TestOrchestrator:
         assert events[1][0] == "file_result"
         assert events[1][1]["result_preview"] == "file written"
         assert events[1][1]["artifacts"][0]["content"] == "file written"
+
+    def test_verification_completed_emits_light_steps_without_full_stdout(self, tmp_path):
+        """验证事件携带轻量步骤摘要（退出码），完整 stdout/stderr 只进 artifacts。
+
+        前端「修复闭环」面板据此即时展示每条验证命令的退出码与通过与否；
+        大文本证据仍在 verification_results artifact 中按需读取。
+        """
+        events = []
+        executor = TaskExecutor(
+            workspace=FileWorkspace(str(tmp_path)),
+            on_progress=lambda event_type, data: events.append((event_type, data)),
+        )
+        summary = VerificationSummary(
+            profile="python_pytest",
+            results=[
+                VerificationResult(
+                    step_id="pytest",
+                    label="pytest",
+                    required=True,
+                    passed=False,
+                    exit_code=1,
+                    stdout="collecting ... 1 failed",
+                    stderr="boom",
+                    duration_seconds=0.5,
+                )
+            ],
+        )
+
+        executor._on_verification_complete("task_v", "subtask_1", 2, summary)
+
+        event_type, data = events[0]
+        assert event_type == "verification_completed"
+        assert data["passed"] is False
+        assert data["profile"] == "python_pytest"
+        assert data["result_count"] == 1
+        assert data["steps"] == [
+            {
+                "step_id": "pytest",
+                "label": "pytest",
+                "required": True,
+                "passed": False,
+                "exit_code": 1,
+                "timed_out": False,
+                "duration_seconds": 0.5,
+            }
+        ]
+        # 大文本不进入事件 data（避免撑爆 SSE/日志），只进入 artifacts 引用
+        assert "stdout" not in data
+        assert "stderr" not in data
+        assert data["artifacts"][0]["kind"] == "verification_results"
+        assert data["artifacts"][0]["content"][0]["stdout"] == "collecting ... 1 failed"
