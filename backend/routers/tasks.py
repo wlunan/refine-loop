@@ -375,6 +375,111 @@ async def get_subtask_rounds(task_id: str, subtask_id: str):
     ]
 
 
+@router.get("/{task_id}/execution-history")
+async def get_execution_history(
+    task_id: str,
+    subtask_id: Optional[str] = None,
+    attempt_id: Optional[str] = None,
+    agent: Optional[str] = None,
+    phase: Optional[str] = None,
+    after: int = 0,
+    limit: int = 200,
+):
+    """Return persisted Agent messages and execution records for replay."""
+    try:
+        task_manager.get_task(task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if after < 0:
+        raise HTTPException(status_code=400, detail="after 不能小于 0")
+    limit = max(1, min(limit, 500))
+    task = task_manager.get_task(task_id)
+    subtask_ids = (
+        [subtask_id]
+        if subtask_id
+        else [st.id for st in (task.plan.subtasks if task.plan else [])]
+    )
+    items = []
+    for current_subtask_id in subtask_ids:
+        messages = task_manager.store.list_messages(
+            task_id, current_subtask_id, attempt_id=attempt_id, limit=limit
+        )
+        records = task_manager.store.list_execution_records(
+            task_id, current_subtask_id, attempt_id=attempt_id, limit=limit
+        )
+        for message in messages:
+            if message.sequence <= after or (agent and message.agent != agent):
+                continue
+            items.append({
+                "kind": "message",
+                "id": message.id,
+                "sequence": message.sequence,
+                "task_id": message.task_id,
+                "subtask_id": message.subtask_id,
+                "attempt_id": message.attempt_id,
+                "agent": message.agent,
+                "role": message.role,
+                "content": message.content,
+                "tool_call_id": message.tool_call_id,
+                "tool_calls": message.tool_calls,
+                "round": message.round,
+                "step": message.step,
+                "created_at": message.created_at.isoformat(),
+            })
+        for record in records:
+            if record.sequence <= after:
+                continue
+            if agent and record.agent != agent:
+                continue
+            if phase and record.phase != phase:
+                continue
+            items.append({
+                "kind": "execution",
+                "id": record.id,
+                "sequence": record.sequence,
+                "task_id": record.task_id,
+                "subtask_id": record.subtask_id,
+                "attempt_id": record.attempt_id,
+                "agent": record.agent,
+                "phase": record.phase,
+                "round": record.round,
+                "step": record.step,
+                "summary": record.summary,
+                "message_ids": record.message_ids,
+                "metadata": record.metadata,
+                "created_at": record.created_at.isoformat(),
+            })
+    items.sort(key=lambda item: (item["sequence"], item["created_at"]))
+    return {"task_id": task_id, "items": items[:limit], "next_after": items[limit - 1]["sequence"] if len(items) > limit else None}
+
+
+@router.get("/{task_id}/resume-state")
+async def get_resume_state(task_id: str):
+    """Return the latest persisted recovery boundary for each unfinished subtask."""
+    try:
+        task = task_manager.get_task(task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    states = []
+    for subtask in (task.plan.subtasks if task.plan else []):
+        snapshot = task_manager.store.load_latest_execution_snapshot(task_id, subtask.id)
+        if snapshot:
+            states.append({
+                "subtask_id": subtask.id,
+                "attempt_id": snapshot.attempt_id,
+                "phase": snapshot.phase,
+                "round": snapshot.round,
+                "step": snapshot.step,
+                "snapshot_id": snapshot.snapshot_id,
+                "resumable": snapshot.resumable,
+                "recovery_note": snapshot.recovery_note,
+                "created_at": snapshot.created_at.isoformat(),
+            })
+    return {"task_id": task_id, "available": bool(states), "states": states}
+
+
 @router.get("/{task_id}/timeline")
 async def get_timeline(task_id: str, limit: int = 200):
     """Return persisted task evidence in chronological order."""

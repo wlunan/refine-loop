@@ -15,12 +15,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
+
 from src.models.task import (
     Checkpoint,
     SubTask,
     Task,
     TaskPlan,
     TaskStatus,
+)
+from src.models.execution import (
+    ConversationMessage,
+    ExecutionRecord,
+    ExecutionSnapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,12 +55,14 @@ class StateStore:
         self.checkpoints_dir = self.storage_dir / "checkpoints"
         self.events_dir = self.storage_dir / "events"
         self.artifacts_dir = self.storage_dir / "artifacts"
+        self.executions_dir = self.storage_dir / "executions"
         
         # 创建目录
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         self.events_dir.mkdir(parents=True, exist_ok=True)
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+        self.executions_dir.mkdir(parents=True, exist_ok=True)
         
         logger.info(f"StateStore 初始化完成: {self.storage_dir}")
 
@@ -145,6 +154,10 @@ class StateStore:
         if artifact_dir.exists():
             shutil.rmtree(artifact_dir)
             deleted = True
+        execution_dir = self._execution_dir(task_id)
+        if execution_dir.exists():
+            shutil.rmtree(execution_dir)
+            deleted = True
         if deleted:
             logger.info(f"任务及其持久化证据已删除: {task_id}")
         return deleted
@@ -179,6 +192,113 @@ class StateStore:
         # 按创建时间倒序排列
         tasks.sort(key=lambda t: t.created_at, reverse=True)
         return tasks[:limit]
+
+    # ------------------------------------------------------------------
+    # 执行历史与恢复快照
+    # ------------------------------------------------------------------
+
+    def _execution_dir(self, task_id: str) -> Path:
+        """Return the durable execution-history directory for a task."""
+        return self.executions_dir / task_id
+
+    def _execution_subtask_dir(self, task_id: str, subtask_id: str) -> Path:
+        return self._execution_dir(task_id) / subtask_id
+
+    @staticmethod
+    def _append_jsonl(path: Path, payload: BaseModel) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(payload.model_dump_json() + "\n")
+            f.flush()
+
+    def append_message(self, message: ConversationMessage) -> None:
+        """Append one serializable Agent message to the execution journal."""
+        self._append_jsonl(
+            self._execution_subtask_dir(message.task_id, message.subtask_id)
+            / "messages.jsonl",
+            message,
+        )
+
+    def append_execution_record(self, record: ExecutionRecord) -> None:
+        """Append one model/tool/state execution record."""
+        self._append_jsonl(
+            self._execution_subtask_dir(record.task_id, record.subtask_id)
+            / "executions.jsonl",
+            record,
+        )
+
+    @staticmethod
+    def _read_jsonl(path: Path, model_type: type[BaseModel]) -> list[BaseModel]:
+        if not path.exists():
+            return []
+        records: list[BaseModel] = []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        records.append(model_type.model_validate_json(line))
+                    except Exception as e:
+                        logger.warning("跳过损坏的执行历史记录: %s, %s", path, e)
+        except OSError as e:
+            logger.warning("读取执行历史失败: %s, %s", path, e)
+        return records
+
+    def list_messages(
+        self,
+        task_id: str,
+        subtask_id: str,
+        attempt_id: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[ConversationMessage]:
+        records = self._read_jsonl(
+            self._execution_subtask_dir(task_id, subtask_id) / "messages.jsonl",
+            ConversationMessage,
+        )
+        messages = [record for record in records if isinstance(record, ConversationMessage)]
+        if attempt_id:
+            messages = [message for message in messages if message.attempt_id == attempt_id]
+        return sorted(messages, key=lambda message: message.sequence)[-limit:]
+
+    def list_execution_records(
+        self,
+        task_id: str,
+        subtask_id: str,
+        attempt_id: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[ExecutionRecord]:
+        records = self._read_jsonl(
+            self._execution_subtask_dir(task_id, subtask_id) / "executions.jsonl",
+            ExecutionRecord,
+        )
+        executions = [record for record in records if isinstance(record, ExecutionRecord)]
+        if attempt_id:
+            executions = [record for record in executions if record.attempt_id == attempt_id]
+        return sorted(executions, key=lambda record: record.sequence)[-limit:]
+
+    def save_execution_snapshot(self, snapshot: ExecutionSnapshot) -> None:
+        """Atomically save the latest lightweight recovery snapshot."""
+        directory = self._execution_subtask_dir(snapshot.task_id, snapshot.subtask_id) / "snapshots"
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / "latest.json"
+        temporary = directory / f"{snapshot.snapshot_id}.tmp"
+        temporary.write_text(snapshot.model_dump_json(indent=2), encoding="utf-8")
+        os.replace(temporary, target)
+
+    def load_latest_execution_snapshot(
+        self,
+        task_id: str,
+        subtask_id: str,
+    ) -> Optional[ExecutionSnapshot]:
+        path = self._execution_subtask_dir(task_id, subtask_id) / "snapshots" / "latest.json"
+        if not path.exists():
+            return None
+        try:
+            return ExecutionSnapshot.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("读取执行快照失败: %s, %s", path, e)
+            return None
 
     # ------------------------------------------------------------------
     # 检查点操作

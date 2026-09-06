@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import logging
+import json
 import threading
 import time
+import uuid
 from typing import Callable, Dict, List, Optional
 
 from config.settings import get_config
@@ -20,6 +22,7 @@ from src.models.task import (
     TaskStatus,
 )
 from src.models.run import RunConfig, VerificationSummary
+from src.models.execution import ConversationMessage, ExecutionRecord, ExecutionSnapshot
 from src.orchestrator import Orchestrator
 from src.store.state_store import StateStore
 from src.tools.filesystem import FileWorkspace
@@ -122,6 +125,8 @@ class TaskExecutor:
         # per-subtask baseline to persist each round's delta accurately.
         self._round_token_totals: Dict[tuple[str, str], int] = {}
         self._subtask_token_totals: Dict[tuple[str, str], int] = {}
+        self._attempt_ids: Dict[tuple[str, str], str] = {}
+        self._history_sequences: Dict[tuple[str, str], int] = {}
     
     def stop(self) -> None:
         """请求停止执行"""
@@ -148,6 +153,12 @@ class TaskExecutor:
         """
         logger.info(f"开始执行子任务: {subtask.id} - {subtask.title}")
         subtask.mark_running()
+        history_key = (task_id, subtask.id)
+        attempt_id = uuid.uuid4().hex
+        self._attempt_ids[history_key] = attempt_id
+        self._history_sequences[history_key] = self._next_history_sequence(
+            task_id, subtask.id
+        )
         
         # 发送开始事件
         self._emit_progress("subtask_started", {
@@ -235,6 +246,8 @@ class TaskExecutor:
             self._current_orchestrator = None
             self._round_token_totals.pop((task_id, subtask.id), None)
             self._subtask_token_totals.pop((task_id, subtask.id), None)
+            self._attempt_ids.pop(history_key, None)
+            self._history_sequences.pop(history_key, None)
         
         return subtask
     
@@ -262,6 +275,56 @@ class TaskExecutor:
             None,
         )
 
+        attempt_id = self._attempt_ids.get(key)
+        if self.store and attempt_id:
+            generator_message = self._append_history_message(
+                task_id=task_id,
+                subtask_id=subtask_id,
+                attempt_id=attempt_id,
+                agent="generator",
+                role="ai",
+                content=draft,
+                round_num=round_num,
+            )
+            critic_content = {
+                "score": critique.score,
+                "acceptable": critique.acceptable,
+                "issues": list(critique.issues),
+                "suggestions": list(critique.suggestions),
+                "summary": critique.summary,
+            }
+            critic_message = self._append_history_message(
+                task_id=task_id,
+                subtask_id=subtask_id,
+                attempt_id=attempt_id,
+                agent="critic",
+                role="ai",
+                content=json.dumps(critic_content, ensure_ascii=False),
+                round_num=round_num,
+            )
+            self._append_execution_record(
+                task_id,
+                subtask_id,
+                attempt_id,
+                phase="model_response",
+                agent="generator",
+                round_num=round_num,
+                summary="Generator 完成本轮产出",
+                message_ids=[generator_message.id],
+                metadata={"tokens_used": round_tokens},
+            )
+            self._append_execution_record(
+                task_id,
+                subtask_id,
+                attempt_id,
+                phase="model_response",
+                agent="critic",
+                round_num=round_num,
+                summary="Critic 完成本轮审阅",
+                message_ids=[critic_message.id],
+                metadata={"score": critique.score, "acceptable": critique.acceptable},
+            )
+
         # Checkpoints are the durable source for per-round token usage.
         if self.store:
             checkpoint = Checkpoint(
@@ -281,6 +344,14 @@ class TaskExecutor:
                 self.store.save_checkpoint(checkpoint)
             except Exception as e:
                 logger.warning(f"保存检查点失败: {e}")
+
+            self._save_history_snapshot(
+                task_id=task_id,
+                subtask_id=subtask_id,
+                attempt_id=attempt_id,
+                round_num=round_num,
+                phase="round_committed",
+            )
 
         # 发送进度事件
         self._emit_progress("subtask_progress", {
@@ -375,3 +446,97 @@ class TaskExecutor:
                 self.on_progress(event_type, data)
             except Exception as e:
                 logger.warning(f"进度回调失败: {e}")
+
+    def _next_history_sequence(self, task_id: str, subtask_id: str) -> int:
+        """Continue sequence numbers after a backend restart."""
+        if not self.store:
+            return 1
+        records = self.store.list_execution_records(task_id, subtask_id, limit=1)
+        messages = self.store.list_messages(task_id, subtask_id, limit=1)
+        last_record = records[-1].sequence if records else 0
+        last_message = messages[-1].sequence if messages else 0
+        return max(last_record, last_message) + 1
+
+    def _next_history_id(self, key: tuple[str, str]) -> int:
+        sequence = self._history_sequences.get(key, 0)
+        self._history_sequences[key] = sequence + 1
+        return sequence
+
+    def _append_history_message(
+        self,
+        task_id: str,
+        subtask_id: str,
+        attempt_id: str,
+        agent: str,
+        role: str,
+        content,
+        round_num: int,
+    ) -> ConversationMessage:
+        key = (task_id, subtask_id)
+        message = ConversationMessage(
+            id=f"msg_{uuid.uuid4().hex}",
+            task_id=task_id,
+            subtask_id=subtask_id,
+            attempt_id=attempt_id,
+            sequence=self._next_history_id(key),
+            agent=agent,
+            role=role,
+            content=content,
+            round=round_num,
+        )
+        self.store.append_message(message)
+        return message
+
+    def _append_execution_record(
+        self,
+        task_id: str,
+        subtask_id: str,
+        attempt_id: str,
+        phase: str,
+        agent: str,
+        round_num: int,
+        summary: str,
+        message_ids: list[str] | None = None,
+        metadata: dict | None = None,
+    ) -> ExecutionRecord:
+        key = (task_id, subtask_id)
+        record = ExecutionRecord(
+            id=f"exec_{uuid.uuid4().hex}",
+            task_id=task_id,
+            subtask_id=subtask_id,
+            attempt_id=attempt_id,
+            sequence=self._next_history_id(key),
+            phase=phase,
+            agent=agent,
+            round=round_num,
+            summary=summary,
+            message_ids=message_ids or [],
+            metadata=metadata or {},
+        )
+        self.store.append_execution_record(record)
+        return record
+
+    def _save_history_snapshot(
+        self,
+        task_id: str,
+        subtask_id: str,
+        attempt_id: str,
+        round_num: int,
+        phase: str,
+    ) -> None:
+        key = (task_id, subtask_id)
+        sequence = self._history_sequences.get(key, 0)
+        self.store.save_execution_snapshot(
+            ExecutionSnapshot(
+                task_id=task_id,
+                subtask_id=subtask_id,
+                attempt_id=attempt_id,
+                snapshot_id=f"snapshot_{uuid.uuid4().hex}",
+                phase=phase,
+                round=round_num,
+                step=0,
+                workspace_path=self.workspace.root,
+                message_sequence=sequence,
+                execution_sequence=sequence,
+            )
+        )
