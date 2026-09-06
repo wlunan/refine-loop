@@ -10,7 +10,7 @@ from typing import Iterable
 
 from .runner import TaskResult
 
-BENCHMARK_VERSION = "2026.09.04.v1"
+BENCHMARK_VERSION = "2026.09.06.v2"
 ARTIFACT_SCHEMA_VERSION = 1
 
 

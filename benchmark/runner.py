@@ -52,6 +52,23 @@ def _write_test(workspace: str, task: dict) -> None:
         f.write(task["test_code"])
 
 
+def _write_seed_files(workspace: str, task: dict) -> None:
+    """把任务预置的初始文件（如待修复的 buggy 实现）写入 workspace
+
+    「修复 bug」类任务需要一个起点文件：评测器先把有缺陷的实现放进工作区，
+    再让 Agent 读、改、验证。无 seed_files 的任务此函数为空操作。
+    """
+    for filename, content in task.get("seed_files", {}).items():
+        with open(os.path.join(workspace, filename), "w", encoding="utf-8") as f:
+            f.write(content)
+
+
+def _prepare_workspace(workspace: str, task: dict) -> None:
+    """把任务的 ground truth 测试与预置文件一并写入 workspace"""
+    _write_test(workspace, task)
+    _write_seed_files(workspace, task)
+
+
 def evaluate_baseline(task: dict, generator: Optional[GeneratorAgent] = None) -> StrategyResult:
     """
     单次生成：Generator 生成一次实现，不验证、不迭代，随后运行测试。
@@ -60,7 +77,7 @@ def evaluate_baseline(task: dict, generator: Optional[GeneratorAgent] = None) ->
     """
     started_at = time.monotonic()
     workspace = tempfile.mkdtemp(prefix=f"bench_{task['name']}_base_")
-    _write_test(workspace, task)
+    _prepare_workspace(workspace, task)
 
     gen = generator or GeneratorAgent(domain="code")
     gen.generate_with_files(
@@ -89,7 +106,7 @@ def evaluate_self_healing(
     """
     started_at = time.monotonic()
     workspace = tempfile.mkdtemp(prefix=f"bench_{task['name']}_heal_")
-    _write_test(workspace, task)
+    _prepare_workspace(workspace, task)
 
     orch = SelfHealingOrchestrator(
         generator=generator,
