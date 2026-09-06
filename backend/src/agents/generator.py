@@ -176,6 +176,8 @@ class GeneratorAgent(BaseAgent):
         on_event: Optional[Callable[[dict], None]] = None,
         max_steps: int = 20,
         enable_verification: bool = True,
+        checkpoint_callback: Optional[Callable[[ToolAgentState], None]] = None,
+        execution_state: Optional[ToolAgentState] = None,
     ) -> str:
         """
         在指定工作区目录内操作文件，完成任务（文件级生成）
@@ -204,13 +206,14 @@ class GeneratorAgent(BaseAgent):
             on_event=on_event,
             max_steps=max_steps,
             usage_callback=self._accumulate_usage,
+            checkpoint_callback=checkpoint_callback,
         )
 
         logger.info(
             f"[Generator] 文件模式生成，工作区: {workspace_dir}, "
             f"任务长度: {len(task)}"
         )
-        return agent.run(user_message=task)
+        return agent.run(user_message=task, execution_state=execution_state)
 
     def _extract_final_output(self, response: str) -> str:
         """

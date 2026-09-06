@@ -23,6 +23,7 @@ from src.models.task import (
 )
 from src.models.run import RunConfig, VerificationSummary
 from src.models.execution import ConversationMessage, ExecutionRecord, ExecutionSnapshot
+from src.models.execution import ToolAgentState
 from src.orchestrator import Orchestrator
 from src.store.state_store import StateStore
 from src.tools.filesystem import FileWorkspace
@@ -169,6 +170,29 @@ class TaskExecutor:
         try:
             # 1. 构建任务提示词
             task_prompt = context.build_task_prompt(subtask)
+            execution_snapshot = (
+                self.store.load_latest_execution_snapshot(task_id, subtask.id)
+                if self.store else None
+            )
+            tool_execution_state = None
+            resumable_phases = {
+                "model_call",
+                "tool_result",
+                "tool_call",
+                "checkpoint",
+            }
+            if (
+                execution_snapshot
+                and execution_snapshot.resumable
+                and execution_snapshot.phase in resumable_phases
+                and execution_snapshot.messages
+            ):
+                tool_execution_state = ToolAgentState(
+                    messages=execution_snapshot.messages,
+                    current_step=execution_snapshot.step,
+                    phase=execution_snapshot.phase,
+                    resumable=execution_snapshot.resumable,
+                )
             
             # 2. 创建 Orchestrator
             orchestrator = Orchestrator(
@@ -183,6 +207,10 @@ class TaskExecutor:
                 on_verification_complete=lambda r, summary: self._on_verification_complete(
                     task_id, subtask.id, r, summary
                 ),
+                on_tool_checkpoint=lambda state: self._on_tool_checkpoint(
+                    task_id, subtask.id, state
+                ),
+                tool_execution_state=tool_execution_state,
             )
             self._current_orchestrator = orchestrator
             self._round_token_totals[(task_id, subtask.id)] = orchestrator.total_tokens_used
@@ -345,13 +373,14 @@ class TaskExecutor:
             except Exception as e:
                 logger.warning(f"保存检查点失败: {e}")
 
-            self._save_history_snapshot(
-                task_id=task_id,
-                subtask_id=subtask_id,
-                attempt_id=attempt_id,
-                round_num=round_num,
-                phase="round_committed",
-            )
+            if attempt_id:
+                self._save_history_snapshot(
+                    task_id=task_id,
+                    subtask_id=subtask_id,
+                    attempt_id=attempt_id,
+                    round_num=round_num,
+                    phase="round_committed",
+                )
 
         # 发送进度事件
         self._emit_progress("subtask_progress", {
@@ -402,6 +431,35 @@ class TaskExecutor:
                 },
             ],
         })
+
+    def _on_tool_checkpoint(
+        self,
+        task_id: str,
+        subtask_id: str,
+        state: ToolAgentState,
+    ) -> None:
+        """Persist the latest ToolAgent messages at every safe loop boundary."""
+        attempt_id = self._attempt_ids.get((task_id, subtask_id))
+        if not self.store or not attempt_id:
+            return
+        self.store.save_execution_snapshot(
+            ExecutionSnapshot(
+                task_id=task_id,
+                subtask_id=subtask_id,
+                attempt_id=attempt_id,
+                snapshot_id=f"snapshot_{uuid.uuid4().hex}",
+                phase=state.phase,
+                round=0,
+                step=state.current_step,
+                workspace_path=self.workspace.root,
+                message_sequence=len(state.messages),
+                execution_sequence=self._history_sequences.get(
+                    (task_id, subtask_id), 0
+                ),
+                messages=state.messages,
+                resumable=state.resumable,
+            )
+        )
     
     def _on_generator_event(
         self,

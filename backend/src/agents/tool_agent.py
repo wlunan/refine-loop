@@ -20,10 +20,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages.base import BaseMessage
+
+from src.models.execution import ConversationMessage, ToolAgentState
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,7 @@ class ToolAgent:
         on_event: Optional[EventCallback] = None,
         max_steps: int = 20,
         usage_callback: Optional[Callable[[Optional[dict]], None]] = None,
+        checkpoint_callback: Optional[Callable[[ToolAgentState], None]] = None,
     ):
         self.llm = llm
         self.tools = tools
@@ -60,6 +65,7 @@ class ToolAgent:
         self.on_event = on_event
         self.max_steps = max_steps
         self.usage_callback = usage_callback
+        self.checkpoint_callback = checkpoint_callback
 
         # 原生 tool call 是否已确认失败（失败后永久走文本协议）
         self._native_failed = False
@@ -81,6 +87,7 @@ class ToolAgent:
         self,
         user_message: str,
         conversation_history: Optional[list] = None,
+        execution_state: Optional[ToolAgentState] = None,
     ) -> str:
         """
         执行工具调用循环，返回最终答案文本
@@ -92,12 +99,16 @@ class ToolAgent:
         Returns:
             最终答案文本
         """
-        messages: list = [SystemMessage(content=self.system_prompt)]
-        if conversation_history:
-            messages.extend(conversation_history)
-        messages.append(HumanMessage(content=user_message))
+        state = execution_state or self._create_initial_state(
+            user_message, conversation_history
+        )
+        messages = self._deserialize_messages(state.messages)
+        content = ""
 
-        for step in range(self.max_steps):
+        for step in range(state.current_step, self.max_steps):
+            state.current_step = step
+            state.phase = "model_call"
+            self._checkpoint(state, messages)
             response = self._invoke_once(messages)
 
             # 累计 token
@@ -114,21 +125,105 @@ class ToolAgent:
             # 1) 原生 tool call 命中
             if tool_calls:
                 self._execute_native_tool_calls(messages, response, tool_calls)
+                self._sync_messages(state, messages, step, "tool_result")
                 continue
 
             # 2) 无 tool call：尝试把 content 解析为 JSON 文本命令
+            messages.append(response)
             command = self._try_parse_command(content)
             if command is not None:
                 observation = self._execute_command(command)
                 messages.append(AIMessage(content=json.dumps(observation, ensure_ascii=False)))
+                self._sync_messages(state, messages, step, "tool_result")
                 continue
 
             # 3) 纯文本：视为最终答案
+            state.phase = "completed"
+            self._sync_messages(state, messages, step, "completed")
             return content or "（Agent 未返回内容）"
 
         # 达到最大步数仍未收敛：返回最后一步的文本作为兜底
         logger.warning(f"达到最大工具调用步数 {self.max_steps}，强制结束")
+        state.phase = "failed"
+        self._sync_messages(state, messages, self.max_steps, "failed")
         return content if "content" in dir() and content else "（达到最大操作步数，任务未完成）"
+
+    def _create_initial_state(
+        self, user_message: str, conversation_history: Optional[list]
+    ) -> ToolAgentState:
+        messages: list[BaseMessage] = [SystemMessage(content=self.system_prompt)]
+        if conversation_history:
+            messages.extend(conversation_history)
+        messages.append(HumanMessage(content=user_message))
+        return ToolAgentState(messages=self._serialize_messages(messages))
+
+    def _checkpoint(self, state: ToolAgentState, messages: list[BaseMessage]) -> None:
+        self._sync_messages(state, messages, state.current_step, state.phase)
+
+    def _sync_messages(
+        self,
+        state: ToolAgentState,
+        messages: list[BaseMessage],
+        step: int,
+        phase: str,
+    ) -> None:
+        state.messages = self._serialize_messages(messages, step)
+        state.phase = phase
+        if self.checkpoint_callback:
+            self.checkpoint_callback(state.model_copy(deep=True))
+
+    @staticmethod
+    def _serialize_messages(
+        messages: list[BaseMessage], step: int = 0
+    ) -> list[ConversationMessage]:
+        serialized = []
+        for index, message in enumerate(messages):
+            if isinstance(message, SystemMessage):
+                role = "system"
+            elif isinstance(message, HumanMessage):
+                role = "human"
+            elif isinstance(message, ToolMessage):
+                role = "tool"
+            else:
+                role = "ai"
+            content = message.content
+            if not isinstance(content, (str, list)):
+                content = str(content)
+            serialized.append(ConversationMessage(
+                id=f"msg_{uuid.uuid4().hex}",
+                sequence=index,
+                agent="tool_agent",
+                role=role,
+                content=content,
+                tool_call_id=getattr(message, "tool_call_id", None),
+                tool_calls=list(getattr(message, "tool_calls", None) or []),
+                name=getattr(message, "name", None),
+                step=step,
+            ))
+        return serialized
+
+    @staticmethod
+    def _deserialize_messages(
+        messages: list[ConversationMessage],
+    ) -> list[BaseMessage]:
+        restored: list[BaseMessage] = []
+        for message in messages:
+            if message.role == "system":
+                restored.append(SystemMessage(content=message.content))
+            elif message.role == "human":
+                restored.append(HumanMessage(content=message.content))
+            elif message.role == "tool":
+                restored.append(ToolMessage(
+                    content=message.content,
+                    tool_call_id=message.tool_call_id or "",
+                    name=message.name,
+                ))
+            else:
+                restored.append(AIMessage(
+                    content=message.content,
+                    tool_calls=message.tool_calls,
+                ))
+        return restored
 
     # ------------------------------------------------------------------
     # LLM 调用（原生 / 文本协议）

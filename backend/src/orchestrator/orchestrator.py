@@ -7,6 +7,7 @@ Orchestrator 编排器模块
 from __future__ import annotations
 
 import logging
+import inspect
 import threading
 import time
 from dataclasses import dataclass
@@ -87,6 +88,8 @@ class Orchestrator:
         on_generator_token: Optional[Callable[[int, str], None]] = None,
         run_config: Optional[RunConfig] = None,
         on_verification_complete: Optional[Callable[[int, VerificationSummary], None]] = None,
+        on_tool_checkpoint: Optional[Callable[[ToolAgentState], None]] = None,
+        tool_execution_state: Optional[ToolAgentState] = None,
     ):
         """
         初始化编排器
@@ -128,6 +131,8 @@ class Orchestrator:
         self.on_round_complete = on_round_complete
         self.on_generator_token = on_generator_token
         self.on_verification_complete = on_verification_complete
+        self.on_tool_checkpoint = on_tool_checkpoint
+        self.tool_execution_state = tool_execution_state
 
         logger.info(
             f"Orchestrator 初始化完成: domain={domain}, "
@@ -381,11 +386,21 @@ class Orchestrator:
                     event["round"] = round_num
                     on_generator_event(event)
 
-            self.generator.generate_with_files(
-                task=gen_task,
-                workspace_dir=workspace_dir,
-                on_event=_on_event,
-            )
+            file_generation_kwargs = {
+                "task": gen_task,
+                "workspace_dir": workspace_dir,
+                "on_event": _on_event,
+            }
+            if self.on_tool_checkpoint and "checkpoint_callback" in inspect.signature(
+                self.generator.generate_with_files
+            ).parameters:
+                file_generation_kwargs["checkpoint_callback"] = self.on_tool_checkpoint
+            if self.tool_execution_state and "execution_state" in inspect.signature(
+                self.generator.generate_with_files
+            ).parameters:
+                file_generation_kwargs["execution_state"] = self.tool_execution_state
+            self.generator.generate_with_files(**file_generation_kwargs)
+            self.tool_execution_state = None
 
             # 1.1 生成后检查停止
             if self._is_stopped():

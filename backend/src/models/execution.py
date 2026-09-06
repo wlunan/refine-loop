@@ -25,9 +25,9 @@ class ConversationMessage(BaseModel):
     """可跨 LangChain 版本持久化的消息记录。"""
 
     id: str
-    task_id: str
-    subtask_id: str
-    attempt_id: str
+    task_id: str = ""
+    subtask_id: str = ""
+    attempt_id: str = ""
     sequence: int = Field(ge=0)
     agent: ExecutionAgent
     role: MessageRole
@@ -71,6 +71,16 @@ class ExecutionSnapshot(BaseModel):
     workspace_path: str
     message_sequence: int = Field(default=0, ge=0)
     execution_sequence: int = Field(default=0, ge=0)
+    messages: list[ConversationMessage] = Field(default_factory=list)
     resumable: bool = True
     recovery_note: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+class ToolAgentState(BaseModel):
+    """可序列化的 ToolAgent 中间状态，用于暂停后恢复模型上下文。"""
+
+    messages: list[ConversationMessage] = Field(default_factory=list)
+    current_step: int = Field(default=0, ge=0)
+    phase: str = "generating"
+    resumable: bool = True
