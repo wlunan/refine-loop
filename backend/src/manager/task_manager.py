@@ -24,6 +24,7 @@ from src.models.task import (
     TaskStatus,
 )
 from src.models.run import RunConfig
+from src.observability import metrics, set_task_context
 from src.planner.task_planner import TaskPlanner
 from src.store.state_store import StateStore
 from src.tools.filesystem import FileWorkspace
@@ -449,6 +450,8 @@ class TaskManager:
         critic: Optional[CriticAgent],
     ) -> None:
         """执行任务（在线程中运行）"""
+        # 链路上下文：此后该线程内所有 LLM 调用与日志自动带 task_id
+        set_task_context(task_id)
         task = self._load_task(task_id)
         
         try:
@@ -670,6 +673,18 @@ class TaskManager:
     def _emit_event(self, event_type: str, data: dict) -> None:
         """Persist and broadcast the same canonical trace event."""
         task_id = data.get("task_id")
+
+        # 任务级指标以事件流为单一事实源：创建/启动/终结各计一次，避免双份口径
+        if event_type == "task_created":
+            metrics.inc("tasks_created_total")
+        elif event_type == "task_started":
+            metrics.inc("tasks_started_total")
+        elif event_type in {"task_completed", "task_failed", "task_cancelled"}:
+            metrics.inc(
+                "tasks_finished_total",
+                status=data.get("status", "unknown"),
+            )
+
         event = None
         if task_id:
             event = self.store.append_event(task_id, event_type, data)

@@ -1,3 +1,9 @@
+export interface SystemMetricsSnapshot {
+  counters: Array<{ name: string; labels: Record<string, string>; value: number }>
+  histograms: Array<{ name: string; labels: Record<string, string>; count: number; sum: number }>
+  gauges: Record<string, number>
+}
+
 const API_BASE = '/api'
 
 export const taskApi = {
@@ -136,6 +142,12 @@ export const taskApi = {
   async getTraceArtifact(taskId: string, artifactId: string) {
     const response = await fetch(`${API_BASE}/tasks/${taskId}/artifacts/${artifactId}`)
     if (!response.ok) throw new Error('获取 Trace 内容失败')
+    return response.json()
+  },
+
+  async getSystemMetrics(): Promise<SystemMetricsSnapshot> {
+    const response = await fetch(`${API_BASE}/system/metrics`)
+    if (!response.ok) throw new Error('获取系统指标失败')
     return response.json()
   },
 }

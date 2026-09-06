@@ -24,6 +24,7 @@ from src.models.task import (
 from src.models.run import RunConfig, VerificationSummary
 from src.models.execution import ConversationMessage, ExecutionRecord, ExecutionSnapshot
 from src.models.execution import ToolAgentState
+from src.observability import set_subtask_context
 from src.orchestrator import Orchestrator
 from src.store.state_store import StateStore
 from src.tools.filesystem import FileWorkspace
@@ -154,6 +155,8 @@ class TaskExecutor:
             更新状态后的子任务
         """
         logger.info(f"开始执行子任务: {subtask.id} - {subtask.title}")
+        # 链路上下文：让本子任务内的 LLM 调用/日志自动带 subtask_id
+        set_subtask_context(subtask.id)
         subtask.mark_running()
         history_key = (task_id, subtask.id)
         attempt_id = uuid.uuid4().hex

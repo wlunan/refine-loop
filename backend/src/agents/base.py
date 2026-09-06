@@ -16,6 +16,7 @@ from langchain_openai import ChatOpenAI
 
 from config.settings import get_config
 from src.models.schemas import AgentRole
+from src.observability import record_llm_call, usage_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,7 @@ class BaseAgent(ABC):
         messages = self._build_messages(user_message, conversation_history)
 
         start_time = time.time()
+        model_name = getattr(self.llm, "model_name", "unknown")
         try:
             logger.debug(
                 f"[{self.role.value}] 调用 LLM，消息长度: {len(user_message)}"
@@ -129,10 +131,21 @@ class BaseAgent(ABC):
             response = self.llm.invoke(messages, **kwargs)
 
             # 统计 token 使用量
-            self._accumulate_usage(self._response_usage(response))
+            usage = self._response_usage(response)
+            self._accumulate_usage(usage)
 
             content = response.content
             duration = time.time() - start_time
+            prompt_tokens, completion_tokens = usage_tokens(usage)
+            # 可观测性埋点：调用次数/状态/耗时/token 进入进程内指标
+            record_llm_call(
+                self.role.value,
+                model_name,
+                ok=True,
+                duration_seconds=duration,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
             logger.info(
                 f"[{self.role.value}] LLM 调用完成，耗时: {duration:.2f}s, "
                 f"返回长度: {len(content)}"
@@ -141,6 +154,12 @@ class BaseAgent(ABC):
 
         except Exception as e:
             duration = time.time() - start_time
+            record_llm_call(
+                self.role.value,
+                model_name,
+                ok=False,
+                duration_seconds=duration,
+            )
             logger.error(
                 f"[{self.role.value}] LLM 调用失败，耗时: {duration:.2f}s, "
                 f"错误: {str(e)}"
@@ -173,23 +192,45 @@ class BaseAgent(ABC):
         messages = self._build_messages(user_message, conversation_history)
 
         start_time = time.time()
+        model_name = getattr(self.llm, "model_name", "unknown")
+        prompt_tokens_total = 0
+        completion_tokens_total = 0
         try:
             logger.debug(
                 f"[{self.role.value}] 流式调用 LLM，消息长度: {len(user_message)}"
             )
             for chunk in self.llm.stream(messages, **kwargs):
                 # 统计 token：多数模型在最后一个 chunk 才返回 usage_metadata
-                self._accumulate_usage(self._response_usage(chunk))
+                usage = self._response_usage(chunk)
+                self._accumulate_usage(usage)
+                prompt, completion = usage_tokens(usage)
+                prompt_tokens_total += prompt
+                completion_tokens_total += completion
                 piece = chunk.content if hasattr(chunk, "content") else str(chunk)
                 if piece:
                     yield piece
 
             duration = time.time() - start_time
+            # 可观测性埋点：流式调用同样记录次数/耗时/token
+            record_llm_call(
+                self.role.value,
+                model_name,
+                ok=True,
+                duration_seconds=duration,
+                prompt_tokens=prompt_tokens_total,
+                completion_tokens=completion_tokens_total,
+            )
             logger.info(
                 f"[{self.role.value}] 流式调用完成，耗时: {duration:.2f}s"
             )
         except Exception as e:
             duration = time.time() - start_time
+            record_llm_call(
+                self.role.value,
+                model_name,
+                ok=False,
+                duration_seconds=duration,
+            )
             logger.error(
                 f"[{self.role.value}] 流式调用失败，耗时: {duration:.2f}s, "
                 f"错误: {str(e)}"

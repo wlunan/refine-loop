@@ -11,6 +11,11 @@
 - **评估框架 / benchmark**（`benchmark/`）：对比「单次生成 vs 自愈闭环」的测试通过率与修复率，输出量化报告
 - **benchmark 任务集重构**（`benchmark/tasks.py`、`benchmark/runner.py`）：任务集升级为难度分层的 5 道题（简单对照/多边界/修复 bug/多文件），`runner.py` 支持 `seed_files` 预置待修复文件
 - **验证驱动修复闭环 Web 可视化**：任务详情页新增「验证驱动修复闭环」面板（`RepairLoopPanel.vue`），逐轮展示「文件改动 → 验证命令/退出码/失败证据 → 复跑 → 通过/达上限」；后端 `verification_completed` 事件新增轻量 `steps` 摘要（退出码直接进事件，stdout/stderr 仍走 artifact 按需读取）
+- **可观测性基础设施**（`src/observability.py` + `server.py`）：
+  - 链路上下文：`request_id|task_id|subtask_id|round` 经 contextvars 自动注入日志（HTTP 中间件、TaskManager 线程、TaskExecutor、Orchestrator 各轮均设置）
+  - 指标聚合器（线程安全 Counter/Histogram/Gauge），LLM 调用（次数/token/耗时/失败）与任务创建/启动/终结以事件流为单一事实源埋点
+  - 端点：`/healthz`、`/readyz`（LLM 配置 + store 可写）、`/metrics`（Prometheus 文本）、`/api/system/metrics`（JSON）
+  - 前端任务中心新增总览统计卡（运行中任务/已完成/LLM 调用/Token 消耗）
 - 架构文档 `docs/ARCHITECTURE.md`、接口文档 `docs/API.md`、项目上下文 `CONTEXT.md`、决策记录 `docs/adr/`
 
 ### 修复

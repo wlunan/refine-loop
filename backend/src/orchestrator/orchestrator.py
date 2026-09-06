@@ -23,6 +23,7 @@ from src.models.schemas import (
     IterationRecord,
 )
 from src.models.run import RunConfig, VerificationSummary
+from src.observability import set_round_context
 from src.tools.filesystem import FileWorkspace
 from src.tools.verification import CodeVerifier
 
@@ -231,6 +232,8 @@ class Orchestrator:
             iteration_start = time.time()
             round_num = state.current_round + 1
             round_start_tokens = self._current_total_tokens()
+            # 链路上下文：让本轮内 Generator/Critic 的 LLM 日志自动带 round
+            set_round_context(round_num)
 
             logger.info(f"--- 第 {round_num} 轮迭代开始 ---")
 
@@ -371,6 +374,8 @@ class Orchestrator:
                 break
 
             round_num = state.current_round + 1
+            # 链路上下文：让本轮内文件生成/验证的 LLM 日志自动带 round
+            set_round_context(round_num)
             logger.info(f"--- 第 {round_num} 轮文件迭代开始 ---")
 
             # 1. Generator 操作文件（首轮用原始任务，后续轮带上审查反馈）

@@ -128,8 +128,26 @@ def setup_logging(level: Optional[str] = None) -> None:
     if level is None:
         level = "DEBUG" if cfg.debug else cfg.log_level
     numeric = getattr(logging, str(level).upper(), logging.INFO)
-    logging.basicConfig(
-        level=numeric,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
+
+    # 可观测性日志：日志行自动带 request_id|task_id|subtask_id|round 链路 id
+    from src.observability import (
+        ContextLogFilter,
+        EnrichedFormatter,
+        LOG_TRACE_FORMAT,
     )
+
+    root = logging.getLogger()
+    root.setLevel(numeric)
+
+    # 仅当根 logger 尚无 handler 时添加我们的 StreamHandler（避免与 pytest
+    # 捕获/其他框架的 handler 重复输出）。
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            EnrichedFormatter(fmt=LOG_TRACE_FORMAT, datefmt="%H:%M:%S")
+        )
+        root.addHandler(handler)
+
+    # 无论 handler 归属，都在根 logger 上挂链路 filter，让整条日志链带上下文
+    if not any(isinstance(f, ContextLogFilter) for f in root.filters):
+        root.addFilter(ContextLogFilter())
