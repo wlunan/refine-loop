@@ -40,5 +40,18 @@ onMounted(() => {
   background: var(--c-bg);
   overflow-y: auto;
   min-height: calc(100vh - var(--header-h));
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .body-layout {
+    flex-direction: column;
+  }
+
+  .main-content {
+    width: 100% !important;
+    padding: var(--sp-3);
+    min-height: calc(100vh - var(--header-h) - 56px);
+  }
 }
 </style>

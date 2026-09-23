@@ -2,9 +2,12 @@
 
 ## 环境
 
-- 运行与测试必须使用 agentchat 环境（base 环境的 pydantic_core 已损坏）：
-  `D:\software\ProgramTool\Miniconda3\envs\agentchat\python.exe`
-- 依赖：`pip install -r requirements.txt`
+- Python 3.10+
+- Node.js 20+
+- Git
+- 建议创建独立虚拟环境：`python -m venv .venv`
+- 后端依赖：`python -m pip install -r requirements.txt`
+- 前端依赖：`cd frontend && npm ci`
 
 ## 目录约定
 
@@ -12,6 +15,7 @@
 - Web 路由在 `backend/routers/`，入口 `backend/server.py`
 - 前端源码在 `frontend/`，构建产物目标 `backend/static/dist`
 - 纯函数/可复用逻辑优先抽取（如 `convergence.py` 共享收敛判定）
+- `dsh-plugin-gc-review/` 是独立插件；除非 Issue 明确要求，否则不要随主项目修改
 
 ## 代码规范
 
@@ -24,13 +28,14 @@
 
 - 测试必须能**完全离线**运行：用 Mock LLM 注入，不依赖真实 API Key
 - 命令执行类测试用临时目录 + 脚本文件，避免 shell 引号跨平台问题
-- 运行：`<exe> -m pytest tests/ -v`
+- 后端：`python -m pytest tests -q`
+- 前端：`cd frontend && npm run build`
 
 ## 提交约定
 
-- 提交信息用**中文**
-- Windows PowerShell 下 `git commit -m "中文"` 会乱码 → 将信息写入 UTF-8 临时文件后用 `git commit -F <file>`
-- `git add` 显式列出文件，勿用 `-A`
+- 提交信息用**中文**，简洁说明行为变化
+- `git add` 显式列出本次文件，勿用 `-A`
+- 提交前检查 `git diff --cached --name-only`，不要提交 `.env`、`.task_store`、`.refineloop-demo` 或真实 benchmark 输出
 
 ## 新增功能 Checklist
 

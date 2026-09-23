@@ -1,10 +1,45 @@
-# 智炼回路（RefineLoop）
+# RefineLoop（智炼回路）
 
-> 可验证的生成-批判闭环优化系统
+> 可验证、可恢复、可人工审批的本地代码 Agent 工作台。
 
-智炼回路是一个基于**生成-批判迭代模式**的多智能体协作系统，核心目标是让 AI 产出自动打磨到可接受标准，减少人工反复补充提示词的负担。
+[![CI](https://github.com/wlunan/refine-loop/actions/workflows/ci.yml/badge.svg)](https://github.com/wlunan/refine-loop/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB)](https://www.python.org/)
+[![Vue](https://img.shields.io/badge/Vue-3-42b883)](https://vuejs.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-通过 Generator（生成者）和 Critic（批判者）两个 Agent 的对话迭代，不断优化产出质量，直到满足收敛条件。Critic 代替了传统「AI 输出 → 人肉审查 → 再喂提示词」循环中的人工审查环节，支持文本、文件操作、长时间运行任务等多种模式。
+RefineLoop 不把模型的“看起来不错”当作任务完成。它让 Agent 在隔离 Git worktree 中修改代码，用测试、构建或 lint 的真实结果判断是否继续修复；验证通过后，用户仍需审阅 diff 并决定应用或丢弃变更。
+
+![RefineLoop 新建代码任务](./docs/assets/refineloop-workbench.png)
+
+## 项目亮点
+
+- **验证驱动修复**：把 pytest、lint、Python 脚本和 Node build 的退出结果作为完成条件，失败证据自动进入下一轮。
+- **受控代码修改**：Git 项目默认在隔离 worktree 中执行，完成后生成变更集供人工审批。
+- **持久化与恢复**：保存任务、检查点、工具调用、JSONL Trace 和 artifact，支持暂停、重启恢复与页面回放。
+- **上下文与成本控制**：消息滑窗、焦点文件快照、失败摘要、Token 预算和停止条件共同限制长任务成本。
+- **完整工程交付**：FastAPI + Vue 3 单端口应用，包含离线测试、CI、指标、Docker Compose 和固定故障 Demo。
+
+```text
+需求 → 任务规划 → 隔离 worktree → Agent 修改 → 确定性验证
+                                      ↑          ↓ 失败证据
+                                      └── Critic / 修复迭代
+                                                   ↓ 通过
+                                         Diff 审阅 → 应用 / 丢弃
+```
+
+## 90 秒固定 Demo
+
+先生成一个可随时重置、带失败测试的独立 Git 仓库：
+
+```Shell
+python scripts/prepare_demo.py
+```
+
+启动 RefineLoop 后选择脚本输出的目录，并输入：
+
+> 修复 `src/cart.py` 的价格计算与输入校验问题，使全部测试通过。保持 `calculate_total` 的函数签名不变，不要修改测试。
+
+可以观察到：pytest 首轮失败 → 失败证据回注 → Agent 修复 → pytest 通过 → 审阅并应用 diff。再次运行准备脚本即可恢复初始故障。
 
 ## 架构设计
 
@@ -156,11 +191,24 @@ refine-loop-agent/
 ### 1. 克隆项目
 
 ```Shell
-git clone <repository-url>
-cd refine-loop-agent
+git clone https://github.com/wlunan/refine-loop.git
+cd refine-loop
 ```
 
-### 2. 安装依赖
+### 2. Docker Compose 一键启动
+
+准备 `.env` 和固定 Demo 后启动：
+
+```Shell
+cp .env.example .env
+# 编辑 .env，填写 OPENAI_API_KEY、模型名和可选 OPENAI_API_BASE
+python scripts/prepare_demo.py
+docker compose up --build
+```
+
+打开 <http://127.0.0.1:8000>。容器中的 `/workspace` 对应 `.env` 里的 `REFINELOOP_WORKSPACE`。
+
+### 3. 本地安装依赖
 
 ```Shell
 pip install -r requirements.txt
@@ -174,7 +222,7 @@ pip install -r requirements.txt
 * `fastapi` + `uvicorn` — Web 服务
 * `pytest` — 测试框架
 
-### 3. 配置环境变量
+### 4. 配置环境变量
 
 ```Shell
 cp .env.example .env
@@ -182,9 +230,9 @@ cp .env.example .env
 
 编辑 `.env` 文件，填入你的 API 配置：
 
-```Properties&#x20;files
+```properties
 # 必填：API Key
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
+OPENAI_API_KEY=your_api_key_here
 
 # 可选：API 基础地址（使用兼容 OpenAI 协议的其他模型时填写）
 # 不填则默认使用 OpenAI 官方地址
@@ -201,7 +249,7 @@ DEBUG=false                     # 调试模式：true 时打印每轮详细信�
 
 **使用非 OpenAI 模型的示例**（如小米 MiMo）：
 
-```Properties&#x20;files
+```properties
 OPENAI_API_KEY=your_api_key_here
 OPENAI_API_BASE=https://api.xiaomimimo.com/v1
 GENERATOR_MODEL=mimo-v2.5-pro
@@ -210,7 +258,7 @@ CRITIC_MODEL=mimo-v2.5
 
 > 只要模型服务兼容 OpenAI 的 `/v1/chat/completions` 接口协议，就可以通过 `OPENAI_API_BASE` 接入。
 
-### 4. 验证配置
+### 5. 验证配置
 
 首次运行时，系统会自动校验配置：
 
@@ -220,7 +268,7 @@ CRITIC_MODEL=mimo-v2.5
 
 配置错误会立即报错并提示修正。
 
-### 5. 运行终端示例
+### 6. 运行终端示例
 
 ```Shell
 # 快速开始（单轮即可收敛的简单任务，推荐先跑这个验证环境）
@@ -253,7 +301,7 @@ python benchmark/run_benchmark.py
 
 运行成功后，终端会实时打印每一轮的 Generator 产出、Critic 审查评分、问题列表和最终结果摘要。
 
-### 6. 启动 Web 服务（可选）
+### 7. 启动 Web 服务（可选）
 
 前端为 Vue 3 + TypeScript 应用（`frontend`），使用 Ant Design Vue + Pinia + ECharts 构建，提供三个页面：
 
@@ -302,7 +350,7 @@ cd frontend
 npm run dev
 ```
 
-访问 \*\*<http://127.0.0.1:5173**，改动代码自动热更新。>
+访问 <http://127.0.0.1:5173>，改动代码会自动热更新。
 
 #### 6.4 页面访问地址
 
@@ -314,7 +362,7 @@ npm run dev
 
 > 说明：统一后端以 SPA 方式托管 `backend/static/dist` 下的前端构建产物；未执行 `npm run build` 时访问根路径会返回 404 提示。
 
-### 7. 运行测试
+### 8. 运行测试
 
 ```Shell
 # 运行所有测试（使用 Mock LLM，无需 API Key）
@@ -324,7 +372,7 @@ pytest tests/ -v
 pytest tests/test_orchestrator.py -v
 
 # 查看覆盖率
-pytest tests/ --cov=src --cov-report=term-missing
+pytest tests/ --cov=backend/src --cov-report=term-missing
 ```
 
 测试使用 Mock LLM 完全离线运行，不消耗 token，不依赖真实 API。
@@ -527,7 +575,7 @@ pytest tests/ -v
 pytest tests/test_orchestrator.py -v
 
 # 查看覆盖率
-pytest tests/ --cov=src --cov-report=term-missing
+pytest tests/ --cov=backend/src --cov-report=term-missing
 ```
 
 测试使用 Mock LLM 完全离线运行，不依赖真实 API。`test_orchestrator.py` 覆盖了所有三种收敛条件的验证。
@@ -552,25 +600,25 @@ pytest tests/ --cov=src --cov-report=term-missing
 
 ### 短期（下一步开发重点）
 
-* **~~可验证工具集~~（已实现）**：`run_tests` / `run_lint` / `run_command` / `run_python` 验证工具 + 代码自愈闭环（`SelfHealingOrchestrator`）已落地，详见 `docs/ARCHITECTURE.md`
-* **审查标准外置化**：把各领域评审标准抽成可配置规范（YAML/JSON），Critic 逐条对照打分，用户可自定义领域标准
-* **CLI 入口**：`gc review <path>` 命令行工具，脱离 Web 直接集成到开发工作流 / CI
-* **~~评估框架~~（已实现）**：`benchmark/` 对比「单次生成 vs 自愈闭环」的测试通过率与修复率，输出量化报告
+* **评测中心**：扩充有区分度的任务集，比较单次生成、Generator-Critic 和验证驱动修复的通过率、成本与延迟
+* **模型适配层**：把提供方、模型组合和运行参数保存为可比较的实验配置
+* **CLI 入口**：提供 `refineloop run <path>`，复用 Web 端同一任务模型和持久化契约
 
 ### 中期
 
-* **多 Critic 并行**：多个 Critic 从不同维度审查，取问题并集
-* **Critic 分级**：初筛用弱模型，通过后用强模型终审
-* **多模型路由**：Generator 用强模型，Critic 用弱模型，按任务难度动态选择
-* **按需人工介入**：收敛不了 / 置信度低 / 高风险操作时暂停并请求人工确认
+* **代码仓库上下文检索**：结合符号、关键词和向量检索，并用相关文件召回率评测
+* **审查标准外置化**：将领域规则抽成可版本化配置，区分确定性规则与模型判断
+* **GitHub Action**：在 Pull Request 中运行只读分析或生成待审批修复建议
 
 ### 长期
 
-* **审查规范 RAG 化**：让 Critic 挂载领域知识库（公司代码规范、最佳实践文档）
-* **记忆与长任务**：断点续跑、跨会话积累迭代经验
-* **CI / GitHub Action 集成**：PR 自动审查 + 修复 + 复审直到达标
-* **Generator 全局记忆**：将历史 critique 摘要（尤其是已否定的点）注入提示词，避免重复犯错
+* **可插拔执行沙箱**：在保留本地模式的同时支持受限容器或远程沙箱
+* **生产反馈回流**：把失败 Trace 脱敏后加入回归任务集，形成持续评测闭环
 
 ## License
 
-MIT
+[MIT](./LICENSE)
+
+## 安全边界
+
+RefineLoop 面向本地、单用户、受信代码仓库，没有认证和租户隔离，不应直接暴露到公网。非 Git 目录无法提供 worktree 隔离和变更集审批。验证通过也不代表不存在安全或业务逻辑问题，应用变更前仍需人工审阅。详见 [SECURITY.md](./SECURITY.md)。

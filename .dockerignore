@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+.task_store
+.refineloop-demo
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+backend/static/dist
+benchmark/results
+dsh-plugin-gc-review
+frontend/node_modules
+htmlcov

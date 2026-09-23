@@ -1,0 +1,11 @@
+services:
+  refine-loop:
+    build: .
+    ports:
+      - "${REFINELOOP_PORT:-8000}:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./.task_store:/app/.task_store
+      - ${REFINELOOP_WORKSPACE:-./.refineloop-demo/buggy-calculator}:/workspace
+    restart: unless-stopped

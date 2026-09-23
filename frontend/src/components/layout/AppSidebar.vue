@@ -129,4 +129,37 @@ function navigate(key: string) {
 .hint-text {
   line-height: 1;
 }
+
+@media (max-width: 760px) {
+  .sidebar {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 56px !important;
+    height: 56px;
+    position: sticky;
+    top: var(--header-h);
+    z-index: 90;
+    border-right: 0;
+    border-bottom: 1px solid var(--c-border);
+  }
+
+  .sidebar-nav {
+    height: 100%;
+    padding: 6px var(--sp-3);
+    flex-direction: row;
+    gap: var(--sp-2);
+  }
+
+  .nav-item {
+    min-height: 44px;
+    justify-content: center;
+    padding: var(--sp-2) var(--sp-3);
+    text-align: center;
+  }
+
+  .sidebar-footer {
+    display: none;
+  }
+}
 </style>

@@ -99,5 +99,5 @@ function handleFilterChange(v: string) { statusFilter.value = v || undefined; ta
 .ct2{font-size:var(--text-base);font-weight:600;color:var(--c-text);margin-bottom:var(--sp-3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .cp{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-3)}.cp :deep(.ant-progress){flex:1}.pl2{font-size:var(--text-xs);font-weight:600;color:var(--c-text-2);min-width:32px;text-align:right}
 .cm{display:flex;justify-content:space-between;font-size:var(--text-xs);color:var(--c-text-3)}
-@media(max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.ph{flex-direction:column;gap:var(--sp-4)}.ha{width:100%}.ha :deep(.ant-select){flex:1;width:auto!important;min-width:0}.ha :deep(.ant-btn){min-width:44px;min-height:44px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3)}.stat{padding:var(--sp-4)}.tg{grid-template-columns:minmax(0,1fr);gap:var(--sp-3)}.tc{padding:var(--sp-4)}}
 </style>

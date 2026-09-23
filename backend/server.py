@@ -54,7 +54,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Generator-Critic Web", lifespan=lifespan)
+app = FastAPI(
+    title="RefineLoop API",
+    description="可验证、可恢复、可人工审批的本地代码 Agent 工作台",
+    version="0.1.0",
+    lifespan=lifespan,
+)
 
 # CORS 配置
 app.add_middleware(
@@ -233,7 +238,7 @@ if __name__ == "__main__":
     import uvicorn
 
     print("=" * 50)
-    print("Generator-Critic Web")
+    print("RefineLoop Code Agent")
     print("=" * 50)
     print("服务地址: http://127.0.0.1:8000")
     print("API 文档: http://127.0.0.1:8000/docs")

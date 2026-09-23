@@ -8,8 +8,8 @@ const themeStore = useThemeStore()
 <template>
   <a-layout-header class="header">
     <div class="header-brand">
-      <div class="brand-mark">G</div>
-      <span class="brand-name">Generator-Critic</span>
+      <div class="brand-mark">R</div>
+      <span class="brand-name">RefineLoop</span>
       <span class="brand-tag">Code Agent</span>
     </div>
     <div class="header-actions">
@@ -93,5 +93,20 @@ const themeStore = useThemeStore()
 .theme-btn:hover {
   color: var(--c-accent);
   background: var(--c-accent-soft);
+}
+
+@media (max-width: 760px) {
+  .header {
+    padding: 0 var(--sp-3);
+  }
+
+  .brand-tag {
+    display: none;
+  }
+
+  .theme-btn {
+    width: 44px;
+    height: 44px;
+  }
 }
 </style>

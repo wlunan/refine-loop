@@ -2,7 +2,9 @@
 
 本项目的所有重要变更记录，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
-## [未发布] - 2026-08-30
+## [未发布]
+
+## [0.1.0] - 2026-09-23
 
 ### 新增
 - **可验证工具集**（`src/tools/verification.py`）：`run_command` / `run_tests` / `run_lint` / `run_python`，带沙箱 cwd、超时控制与输出截断，让审查基于真实执行结果
@@ -25,7 +27,7 @@
 ### 修复
 - 修正 `test_orchestrator.py` 两个红测试（`no_progress_rounds` 参数已从 `Orchestrator.__init__` 移除；三轮 issues 相同误触发「无新反馈」收敛）
 
-## [1.0.0] - 更早
+## 项目原型
 
 ### 核心能力
 - Generator-Critic 多 Agent 框架（生成-批判迭代）
@@ -37,3 +39,6 @@
 - 文件安全沙箱（FileWorkspace）+ 混合模式工具调用（ToolAgent）
 - LangGraph 图状态机（对比实现）
 - Mock LLM 完全离线单元测试
+
+[未发布]: https://github.com/wlunan/refine-loop/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/wlunan/refine-loop/releases/tag/v0.1.0
